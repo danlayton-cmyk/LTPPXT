@@ -1,6 +1,7 @@
 """The desk loop. One step per block.
 
     python -m desk.run --mode shadow --bot gambler --feed synthetic --judge fake --blocks 360
+    python -m desk.run --mode paper --bot spy --feed coinbase          # live data, runs until stopped
 
 Per block: feed new ticks to the paper broker, build snapshots from data stamped before
 the block, resolve outcomes that have come due, then either manage the open position
@@ -9,7 +10,9 @@ decision that misses it holds.
 """
 
 import argparse
+import math
 import os
+import signal
 import sys
 import time
 import uuid
@@ -19,6 +22,7 @@ from dataclasses import replace
 from book.book import Bench, Book, OpenPosition, PendingEntry
 from broker import make_broker
 from broker.base import Order
+from desk.coinbase_feed import CoinbaseFeed
 from desk.config import DeskConfig, Mode
 from desk.feed import MarketFeed, ReplayFeed, SyntheticFeed
 from filter.funnel import Funnel, Judged
@@ -111,7 +115,9 @@ class Desk:
         )
 
     def _snapshot(self, symbol: str, now: float, equity: float) -> Snapshot | None:
-        ticks = self.feed.ticks(symbol, now, self.cfg.state.vol_window_s + 1)
+        # Reach back past the longest window so its reference price is found even when ticks are sparse.
+        lookback = max(*self.cfg.state.return_windows_s, self.cfg.state.vol_window_s) + 60
+        ticks = self.feed.ticks(symbol, now, lookback)
         account = AccountView(self._inventory(symbol), equity, self.peak_equity)
         return build_snapshot(ticks, now, account, self.cfg.state)
 
@@ -246,14 +252,43 @@ class Desk:
                            mid_then=then.mid, mid_now=later.mid, outcomes=outcomes)
 
 
+def run_live(desk: Desk, blocks: int, log: EventLog, clock: Callable[[], float] = time.time, wait: Callable[[float], None] = time.sleep) -> int:
+    """Step once per block boundary on the wall clock. blocks <= 0 runs until interrupted.
+    A failing block is logged and the loop carries on: a 24/7 desk must not die on one bad block."""
+    interval = desk.cfg.block_interval_s
+    done = 0
+    while blocks <= 0 or done < blocks:
+        now = clock()
+        wait(max(0.0, (math.floor(now / interval) + 1) * interval - now))
+        try:
+            desk.step(clock())
+        except Exception as e:
+            log.write("error", clock(), check="desk_step", detail=f"{type(e).__name__}: {e}")
+        done += 1
+    return done
+
+
+def _throttled_feed_errors(log: EventLog, every_s: float = 60.0) -> Callable[[str, str], None]:
+    """At most one feed_error event per symbol per minute, so an outage does not flood the log."""
+    last: dict[str, float] = {}
+
+    def on_error(symbol: str, detail: str) -> None:
+        now = time.time()
+        if now - last.get(symbol, -math.inf) >= every_s:
+            last[symbol] = now
+            log.write("feed_error", now, symbol=symbol, detail=detail)
+
+    return on_error
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Paper-only AI trading desk")
     ap.add_argument("--mode", choices=[m.value for m in Mode], default="shadow")
     ap.add_argument("--bot", choices=["gambler", "house", "spy"], default="gambler")
-    ap.add_argument("--feed", choices=["synthetic", "replay"], default="synthetic")
+    ap.add_argument("--feed", choices=["synthetic", "replay", "coinbase"], default="synthetic")
     ap.add_argument("--replay-file")
     ap.add_argument("--judge", choices=["http", "fake"], default="http")
-    ap.add_argument("--blocks", type=int, default=360)
+    ap.add_argument("--blocks", type=int, default=None, help="default 360 offline; live runs until stopped")
     ap.add_argument("--log-dir", default="logs/data")
     args = ap.parse_args(argv)
 
@@ -262,24 +297,42 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     cfg = replace(DeskConfig(), mode=Mode(args.mode), bot=args.bot, log_dir=args.log_dir)
+    secret = os.environ.get("DESK_JUDGE_SECRET", "")
+    log = EventLog(cfg.log_dir, secrets=[secret])
+    judge = FakeJudge() if args.judge == "fake" else JudgeClient(cfg.judge_url, secret)
+
+    if args.feed == "coinbase":
+        # Keep a little more than the vol window so the 15m return always has a reference price.
+        feed = CoinbaseFeed(cfg.symbols, history_s=max(*cfg.state.return_windows_s, cfg.state.vol_window_s) + 120, on_error=_throttled_feed_errors(log))
+        desk = Desk(cfg, feed, judge, log)
+        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+        feed.start()
+        print(f"live: mode={cfg.mode.value}, bot={cfg.bot}, symbols={','.join(cfg.symbols)}, logs in {cfg.log_dir}. "
+              f"Expect ~{cfg.state.vol_window_s // 60} min of insufficient_history rejections while history builds. Ctrl-C to stop.")
+        try:
+            done = run_live(desk, args.blocks or 0, log)
+        except KeyboardInterrupt:
+            done = None
+        finally:
+            feed.stop()
+        print(f"stopped after {done if done is not None else 'an interrupt'}" + (" blocks" if done is not None else ""))
+        return 0
+
+    blocks = 360 if args.blocks is None else args.blocks
     if args.feed == "replay":
         if not args.replay_file:
             ap.error("--replay-file is required with --feed replay")
         feed = ReplayFeed(args.replay_file)
         cfg = replace(cfg, symbols=feed.symbols)
     else:
-        feed = SyntheticFeed(cfg.symbols, start_ts=1_760_000_000, seconds=cfg.state.vol_window_s + int(args.blocks * cfg.block_interval_s) + 60)
-
-    secret = os.environ.get("DESK_JUDGE_SECRET", "")
-    judge = FakeJudge() if args.judge == "fake" else JudgeClient(cfg.judge_url, secret)
-    log = EventLog(cfg.log_dir, secrets=[secret])
+        feed = SyntheticFeed(cfg.symbols, start_ts=1_760_000_000, seconds=cfg.state.vol_window_s + int(blocks * cfg.block_interval_s) + 60)
     desk = Desk(cfg, feed, judge, log)
 
-    # Offline feeds run in simulated time; a live feed would step on the wall clock instead.
+    # Offline feeds run in simulated time.
     start = feed.first_ts() + cfg.state.vol_window_s + 1
-    for i in range(args.blocks):
+    for i in range(blocks):
         desk.step(start + i * cfg.block_interval_s)
-    print(f"{args.blocks} blocks done, mode={cfg.mode.value}, bot={cfg.bot}, logs in {cfg.log_dir}")
+    print(f"{blocks} blocks done, mode={cfg.mode.value}, bot={cfg.bot}, logs in {cfg.log_dir}")
     return 0
 
 

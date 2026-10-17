@@ -20,6 +20,7 @@ def summarize(events: list[dict]) -> str:
     equity = [e for e in events if e["type"] == "equity"]
     closed = [e for e in events if e["type"] == "trade_closed"]
     stops = [e for e in events if e["type"] == "stop_loss"]
+    feed_errors = [e for e in events if e["type"] == "feed_error"]
 
     fees = sum(f["fee_usd"] + f["gas_usd"] for f in fills)
     if equity:
@@ -37,6 +38,7 @@ def summarize(events: list[dict]) -> str:
     lines.append(f"Stop-loss triggers: {len(stops)}")
     lines.append(f"Fees + gas paid: ${fees:,.2f}")
     lines.append(pnl_line)
+    lines.append(f"Market data errors (throttled to 1/min/symbol): {len(feed_errors)}")
     lines.append(f"Judge errors: {len(errors)} ({', '.join(f'{c}: {n}' for c, n in sorted(Counter(e['check'] for e in errors).items())) or 'none'})")
     lines.append("")
     lines.append(f"## Risk vetoes ({len(vetoes)})")

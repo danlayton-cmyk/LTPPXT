@@ -20,7 +20,7 @@ what to do with the answers, and code-only risk checks sit in front of every ord
 | `logs/` | JSONL event log, one file per UTC day, in `logs/data/` (git-ignored). Scrubs secret-looking keys and known secret values. |
 | `judge/` | The only process that holds the TypeSafe key. Desk calls it with a separate desk secret. Returns Jev's answers raw. |
 | `reports/` | Calibration report (buckets, Brier, reliability SVG) and daily summary. |
-| `desk/` | Config, market feeds, and the run loop. |
+| `desk/` | Config, market feeds (synthetic, replay, live Coinbase), and the run loop. |
 
 ## Jev
 
@@ -45,9 +45,14 @@ python -m reports.calibration --include-fake   # fake answers are excluded by de
 pip install -e '.[judge]'
 DESK_JUDGE_SECRET=<32+ random chars> TYPESAFE_API_KEY=<your key> python -m judge.server
 DESK_JUDGE_SECRET=<same value> python -m desk.run --mode shadow --bot spy --feed replay --replay-file ticks.jsonl
+
+# live market data: Coinbase Exchange public level-1 book, no key. Runs until Ctrl-C.
+DESK_JUDGE_SECRET=<same value> python -m desk.run --mode shadow --bot spy --feed coinbase
 ```
 
 The desk refuses to start if `TYPESAFE_API_KEY` is in its environment. The judge refuses to start with `TYPESAFE_LOG_LEVEL=debug`, because the SDK logs full request bodies at debug.
+
+The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/book?level=1` once a second per symbol, stamps each tick with the exchange's `time` field, and keeps about 17 minutes in memory. The first 15 minutes after a start are history warm-up: every symbol is rejected as `insufficient_history` until the 15m return has a reference price. Coinbase caches this endpoint for up to 2 s, so ticks arrive every 1-2 s. Data age is measured against your machine's clock, so keep it NTP-synced.
 
 Modes:
 - `shadow`: Jev labels every decision, the policy and risk run, and the log records what would have happened. Nothing executes.
@@ -57,5 +62,5 @@ Tests: `python -m unittest discover -s tests -t .`
 
 ## Not built yet
 
-- A live market data feed. The shipped feeds are synthetic and replay. Running 24/7 needs a real-time feed and a wall-clock loop in `desk/run.py`.
+- Backfill on start. The live feed starts with no history, so the first 15 minutes trade nothing.
 - Tuned numbers. Every threshold, weight and limit in `desk/config.py` and `policy/policy.py` is a starting default.

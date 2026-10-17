@@ -1,12 +1,14 @@
 """Append-only JSONL event log, one file per UTC day.
 
 Event types: snapshot, question, answer, decision, rejection, veto, order, fill,
-outcome, equity, error. Every record is scrubbed before it is written: values under
-secret-looking keys are replaced, and any registered secret value is removed from strings.
+outcome, equity, error, stop_loss, trade_closed, feed_error. Every record is scrubbed
+before it is written: values under secret-looking keys are replaced, and any registered
+secret value is removed from strings.
 """
 
 import json
 import re
+import threading
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,11 +26,12 @@ class EventLog:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._secrets = [s for s in secrets if s]
+        self._lock = threading.Lock()  # the live feed thread writes too
 
     def write(self, event_type: str, ts: float, **fields) -> dict:
         record = self._scrub({**fields, "ts": ts, "type": event_type})
         line = json.dumps(record, separators=(",", ":"), sort_keys=True, default=str)
-        with open(self.root / f"{utc_day(ts)}.jsonl", "a", encoding="utf-8") as f:
+        with self._lock, open(self.root / f"{utc_day(ts)}.jsonl", "a", encoding="utf-8") as f:
             f.write(line + "\n")
         return record
 
