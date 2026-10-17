@@ -1,0 +1,13 @@
+[project]
+name = "ltppxt"
+version = "0.1.0"
+description = "Paper-only AI trading desk skeleton"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+# Only the judge process needs the SDK. Pinned exactly; bump deliberately.
+judge = ["typesafe-sdk==0.7.5"]
+
+[tool.setuptools]
+packages = ["desk", "state", "questions", "policy", "risk", "broker", "filter", "book", "logs", "judge", "reports"]
