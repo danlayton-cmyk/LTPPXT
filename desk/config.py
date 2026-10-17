@@ -48,6 +48,7 @@ class RiskConfig:
     max_mid_jump_bps: float = 300.0  # mid vs the previous block's mid; larger means bad data
     max_data_age_s: float = 5.0
     fee_edge_margin: float = 1.5  # expected edge must cover fees + gas + spread this many times
+    stop_loss_bps: float = 75.0  # adverse move from entry that forces a market exit, no model asked
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ DEFAULT_BENCH_SECONDS: dict[str, float] = {
     "jev_malformed": 86_400,  # a bad battery will not fix itself; needs a human
     "below_threshold": 120,
     "risk_veto": 900,
+    "stop_loss": 1_800,
 }
 
 

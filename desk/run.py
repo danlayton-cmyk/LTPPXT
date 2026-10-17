@@ -25,8 +25,9 @@ from filter.funnel import Funnel, Judged
 from judge.client import JudgeClient, JudgeError, JudgeRateLimited
 from judge.fake import FakeJudge
 from logs.writer import EventLog, utc_day
-from policy.policy import Action, decide
+from policy.policy import Action, cost_bps, decide
 from questions import load_battery
+from risk.stops import stop_hit
 from risk.vetoes import GuardedBroker, RiskContext, VetoedOrder, check_order
 from state.snapshot import AccountView, Snapshot, build_snapshot
 
@@ -184,7 +185,18 @@ class Desk:
 
     def _manage_position(self, now: float, snap: Snapshot | None, marks, equity, deadline: float) -> None:
         pos = self.book.position
-        if snap is None or self.judge_clock() < self.jev_cooldown_until:
+        if snap is None:
+            return  # no price to act on: hold
+        adverse = stop_hit(pos.side, pos.entry_price, snap.mid, self.cfg.risk.stop_loss_bps)
+        if adverse is not None:
+            decision_id = f"{self.cfg.bot}-{pos.symbol}-stop-{int(now * 1000)}"
+            self.log.write("stop_loss", now, decision_id=decision_id, symbol=pos.symbol, entry_price=pos.entry_price, mid=snap.mid,
+                           adverse_bps=round(adverse, 3), stop_loss_bps=self.cfg.risk.stop_loss_bps, mode=self.cfg.mode.value)
+            cost = cost_bps(snap, self.cfg.fees, self.cfg.order_size_usd, passive=False, legs=1)
+            if self._exit(now, snap, marks, equity, None, cost, decision_id, "stop_loss"):
+                self.bench.bench(pos.symbol, "stop_loss", now)
+            return
+        if self.judge_clock() < self.jev_cooldown_until:
             return  # hold
         decision_id = f"{self.cfg.bot}-{pos.symbol}-exit-{int(now * 1000)}"
         state, questions = snap.to_state(), self.battery.to_wire()
@@ -202,16 +214,22 @@ class Desk:
         d = decide(self.cfg.bot, result.answers, snap, self.cfg, has_position=True)
         self.log.write("decision", now, decision_id=decision_id, model=result.model, mode=self.cfg.mode.value, **d.to_log())
         self.pending_outcomes.append((now + self.cfg.outcome_horizon_s, decision_id, snap))
-        if d.action != Action.EXIT:
-            return
+        if d.action == Action.EXIT:
+            self._exit(now, snap, marks, equity, result.model, d.cost_bps, decision_id, "policy")
+
+    def _exit(self, now: float, snap: Snapshot, marks, equity, model: str | None, cost: float, decision_id: str, reason: str) -> bool:
+        """Close the open position with a reduce-only market order through risk. True if it closed."""
+        pos = self.book.position
         side = "sell" if pos.side == "buy" else "buy"
         order = Order(uuid.uuid4().hex[:12], pos.symbol, side, pos.qty, "market", None, True, now)
-        fill, _ = self._submit(now, order, snap, marks, equity, result.model, None, d.cost_bps, decision_id)
-        if fill is not None:
-            closed = self.book.close()
-            sign = 1 if closed.side == "buy" else -1
-            self.log.write("trade_closed", now, decision_id=closed.decision_id, exit_decision_id=decision_id, symbol=closed.symbol,
-                           entry_price=closed.entry_price, exit_price=fill.price, qty=closed.qty, gross_pnl_usd=round(sign * (fill.price - closed.entry_price) * closed.qty, 6))
+        fill, _ = self._submit(now, order, snap, marks, equity, model, None, cost, decision_id)
+        if fill is None:
+            return False
+        closed = self.book.close()
+        sign = 1 if closed.side == "buy" else -1
+        self.log.write("trade_closed", now, decision_id=closed.decision_id, exit_decision_id=decision_id, exit_reason=reason, symbol=closed.symbol,
+                       entry_price=closed.entry_price, exit_price=fill.price, qty=closed.qty, gross_pnl_usd=round(sign * (fill.price - closed.entry_price) * closed.qty, 6))
+        return True
 
     def _resolve_outcomes(self, now: float, snaps: dict[str, Snapshot | None], equity: float) -> None:
         due = [p for p in self.pending_outcomes if p[0] <= now]

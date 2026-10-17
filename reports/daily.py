@@ -19,6 +19,7 @@ def summarize(events: list[dict]) -> str:
     errors = [e for e in events if e["type"] == "error"]
     equity = [e for e in events if e["type"] == "equity"]
     closed = [e for e in events if e["type"] == "trade_closed"]
+    stops = [e for e in events if e["type"] == "stop_loss"]
 
     fees = sum(f["fee_usd"] + f["gas_usd"] for f in fills)
     if equity:
@@ -32,7 +33,8 @@ def summarize(events: list[dict]) -> str:
     lines.append(f"Mode(s): {', '.join(modes) or 'unknown'}")
     lines.append(f"Decisions made: {len(decisions)} ({', '.join(f'{a}: {n}' for a, n in sorted(Counter(d['action'] for d in decisions).items())) or 'none'})")
     lines.append(f"Orders: {len(orders)} ({sum(1 for o in orders if o.get('executed'))} executed, {sum(1 for o in orders if not o.get('executed'))} not executed)")
-    lines.append(f"Fills: {len(fills)}; round trips closed: {len(closed)}")
+    lines.append(f"Fills: {len(fills)}; round trips closed: {len(closed)} ({sum(1 for c in closed if c.get('exit_reason') == 'stop_loss')} by stop-loss)")
+    lines.append(f"Stop-loss triggers: {len(stops)}")
     lines.append(f"Fees + gas paid: ${fees:,.2f}")
     lines.append(pnl_line)
     lines.append(f"Judge errors: {len(errors)} ({', '.join(f'{c}: {n}' for c, n in sorted(Counter(e['check'] for e in errors).items())) or 'none'})")

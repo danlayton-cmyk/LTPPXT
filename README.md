@@ -13,7 +13,7 @@ what to do with the answers, and code-only risk checks sit in front of every ord
 | `state/` | Deterministic snapshot from raw ticks: mid, spread, imbalance, realized vol, returns over 1m/5m/15m, inventory, drawdown. Reads only ticks stamped before the decision. Rejects any snapshot estimated at 400 tokens or more. |
 | `questions/` | One battery per bot (`gambler`, `house`, `spy`). One judgment per question. Every Choice gets an `other` option automatically. Resolvers turn later market data into outcomes for calibration. |
 | `policy/` | Weights that combine answers into one probability per action, and one threshold per action: the break-even probability given expected move and costs, with a floor. |
-| `risk/` | Hard vetoes before every order: max position, daily loss limit, leverage cap, range guard, fees-plus-gas, model version. `GuardedBroker` is the only way to place an order. |
+| `risk/` | Hard vetoes before every order: max position, daily loss limit, leverage cap, range guard, fees-plus-gas, model version. `GuardedBroker` is the only way to place an order. A code-only stop-loss (`stop_loss_bps`) closes the position before the judge is asked, so it still fires when the judge is down. |
 | `broker/` | `Broker` interface plus `PaperBroker`. `make_broker()` can only return a paper broker. |
 | `filter/` | The funnel, cheapest check first: free cut, one-call depth check, hard facts in code, Jev, final pick. Every rejection is logged with its stage and check. |
 | `book/` | One open position at a time (no scanning while one is open). A bench where the rejecting check sets how long a symbol sits out. |
@@ -58,5 +58,4 @@ Tests: `python -m unittest discover -s tests -t .`
 ## Not built yet
 
 - A live market data feed. The shipped feeds are synthetic and replay. Running 24/7 needs a real-time feed and a wall-clock loop in `desk/run.py`.
-- A code-only stop-loss. Today a position closes only when the policy says exit. If the judge is down, the desk holds the position.
 - Tuned numbers. Every threshold, weight and limit in `desk/config.py` and `policy/policy.py` is a starting default.
