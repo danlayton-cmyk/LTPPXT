@@ -138,19 +138,19 @@ class Desk:
             day_pnl_usd=equity - self.day_start_equity,
         )
 
-    def _submit(self, now: float, order: Order, snap: Snapshot, marks, equity, model: str | None, gross_edge: float | None, cost: float, decision_id: str):
+    def _submit(self, now: float, order: Order, snap: Snapshot, marks, equity, model: str | None, gross_edge: float | None, cost: float, decision_id: str, stop_exit: bool = False):
         """Run risk, then execute (paper) or log what would have happened (shadow)."""
         ctx = self._risk_ctx(snap, now, marks, equity)
         order_log = {"decision_id": decision_id, "order_id": order.id, "symbol": order.symbol, "side": order.side, "qty": order.qty,
                      "order_type": order.type, "limit_price": order.limit_price, "reduce_only": order.reduce_only, "mode": self.cfg.mode.value}
         if self.broker is None:  # shadow: same checks, nothing executes
-            vetoes = check_order(order, ctx, self.cfg.risk, self.cfg.jev_model, model, gross_edge, cost)
+            vetoes = check_order(order, ctx, self.cfg.risk, self.cfg.jev_model, model, gross_edge, cost, stop_exit)
             for v in vetoes:
                 self.log.write("veto", now, check=v.check, detail=v.detail, **order_log)
             self.log.write("order", now, executed=False, would_pass_risk=not vetoes, **order_log)
             return None, bool(vetoes)
         try:
-            fill = self.broker.submit(order, ctx, model, gross_edge, cost)
+            fill = self.broker.submit(order, ctx, model, gross_edge, cost, stop_exit)
         except VetoedOrder as e:
             for v in e.vetoes:
                 self.log.write("veto", now, check=v.check, detail=v.detail, **order_log)
@@ -222,7 +222,7 @@ class Desk:
         pos = self.book.position
         side = "sell" if pos.side == "buy" else "buy"
         order = Order(uuid.uuid4().hex[:12], pos.symbol, side, pos.qty, "market", None, True, now)
-        fill, _ = self._submit(now, order, snap, marks, equity, model, None, cost, decision_id)
+        fill, _ = self._submit(now, order, snap, marks, equity, model, None, cost, decision_id, stop_exit=reason == "stop_loss")
         if fill is None:
             return False
         closed = self.book.close()

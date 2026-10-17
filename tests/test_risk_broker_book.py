@@ -47,6 +47,14 @@ class RiskTest(unittest.TestCase):
         self.assertIn("model_version", checks(exit_, ctx=ctx, model="jev-1.14.0", edge=None))
         self.assertIn("range_guard", checks(exit_, ctx=CTX.__class__(**{**ctx.__dict__, "data_age_s": 60}), model=None, edge=None))
 
+    def test_jump_guard_exemption_is_only_for_stop_exits(self):
+        jumped = CTX.__class__(**{**CTX.__dict__, "prev_mid": 90.0, "position_qty": 2.0})
+        exit_ = order(side="sell", reduce_only=True)
+        vetoes = lambda o, stop: {v.check for v in check_order(o, jumped, RISK, PINNED_JEV_MODEL, None, None, 10.0, stop)}
+        self.assertEqual(vetoes(exit_, stop=True), set())
+        self.assertIn("range_guard", vetoes(exit_, stop=False))
+        self.assertIn("range_guard", vetoes(order(), stop=True))  # an opening order never gets it
+
     def test_guarded_broker_blocks(self):
         b = PaperBroker(10_000, FeeConfig())
         b.on_tick(Tick(0, "BTC-USD", 99.99, 100.01, 10, 10))

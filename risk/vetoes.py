@@ -6,7 +6,9 @@ which must equal the pinned one exactly.
 
 Reduce-only orders (exits) skip the exposure checks (max position, daily loss, leverage,
 fees-plus-gas), because blocking an exit would trap risk on the book. They still face the
-range guard and, when a model triggered them, the model version check.
+range guard and, when a model triggered them, the model version check. A stop-loss exit
+also skips the mid-jump part of the range guard: a real crash is a large jump, and that is
+when the stop must fire. It still refuses stale data.
 """
 
 from dataclasses import dataclass
@@ -40,6 +42,7 @@ def check_order(
     model_version: str | None,
     gross_edge_bps: float | None,
     cost_bps: float,
+    stop_exit: bool = False,
 ) -> list[Veto]:
     """Return every veto that fires. An empty list means the order may go.
 
@@ -60,7 +63,7 @@ def check_order(
     # Range guard: sane, fresh data and an order price near the market.
     if ctx.data_age_s > cfg.max_data_age_s:
         vetoes.append(Veto("range_guard", f"data is {ctx.data_age_s:.1f}s old, limit {cfg.max_data_age_s}s"))
-    if ctx.prev_mid and abs(ctx.mid / ctx.prev_mid - 1) * 1e4 > cfg.max_mid_jump_bps:
+    if ctx.prev_mid and not (stop_exit and order.reduce_only) and abs(ctx.mid / ctx.prev_mid - 1) * 1e4 > cfg.max_mid_jump_bps:
         vetoes.append(Veto("range_guard", f"mid jumped {abs(ctx.mid / ctx.prev_mid - 1) * 1e4:.0f} bps since last block"))
     if abs(price / ctx.mid - 1) * 1e4 > cfg.range_guard_bps:
         vetoes.append(Veto("range_guard", f"order price {price} is {abs(price / ctx.mid - 1) * 1e4:.0f} bps from mid"))
@@ -104,8 +107,8 @@ class GuardedBroker:
     def inner(self) -> Broker:
         return self._broker
 
-    def submit(self, order: Order, ctx: RiskContext, model_version: str | None, gross_edge_bps: float | None, cost_bps: float) -> Fill | None:
-        vetoes = check_order(order, ctx, self._cfg, self._pinned, model_version, gross_edge_bps, cost_bps)
+    def submit(self, order: Order, ctx: RiskContext, model_version: str | None, gross_edge_bps: float | None, cost_bps: float, stop_exit: bool = False) -> Fill | None:
+        vetoes = check_order(order, ctx, self._cfg, self._pinned, model_version, gross_edge_bps, cost_bps, stop_exit)
         if vetoes:
             raise VetoedOrder(vetoes)
         return self._broker.submit(order)

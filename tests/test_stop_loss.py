@@ -76,6 +76,20 @@ class StopLossDeskTest(unittest.TestCase):
             desk.step(1600.0)
             self.assertIsNone(desk.book.position)
 
+    def test_fires_through_a_crash_the_jump_guard_would_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            desk, _ = desk_with_position(tmp, move_bps=-500)  # 500 bps > max_mid_jump_bps of 300
+            desk.step(1600.0)
+            self.assertIsNone(desk.book.position)
+
+    def test_still_refuses_stale_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            desk, _ = desk_with_position(tmp, move_bps=-100)
+            desk.step(2100.0)  # last tick is at 1999: 101 s old
+            self.assertIsNotNone(desk.book.position)
+            vetoes = [e for e in read_events(tmp) if e["type"] == "veto"]
+            self.assertEqual({v["check"] for v in vetoes}, {"range_guard"})
+
     def test_fires_during_rate_limit_cooldown(self):
         with tempfile.TemporaryDirectory() as tmp:
             desk, _ = desk_with_position(tmp, move_bps=-100)
