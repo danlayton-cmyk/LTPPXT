@@ -48,6 +48,7 @@ class Snapshot:
     returns_bps: dict[str, float | None]  # keyed by window label, None if history is too short
     inventory: float
     drawdown_pct: float
+    has_book: bool = True  # False when the newest tick has no real book (e.g. a backfilled candle close)
 
     def to_state(self) -> dict:
         """The compact dict sent to Jev. Keys are self-describing so questions can cite them."""
@@ -116,6 +117,7 @@ def build_snapshot(ticks: Sequence[Tick], decision_ts: float, account: AccountVi
         returns_bps=returns,
         inventory=account.inventory,
         drawdown_pct=drawdown,
+        has_book=last.bid_size > 0 and last.ask_size > 0 and last.ask > last.bid,
     )
     tokens = approx_tokens(snap.to_json())
     if tokens >= cfg.max_state_tokens:

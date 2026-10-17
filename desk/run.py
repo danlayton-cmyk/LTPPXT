@@ -290,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--judge", choices=["http", "fake"], default="http")
     ap.add_argument("--blocks", type=int, default=None, help="default 360 offline; live runs until stopped")
     ap.add_argument("--log-dir", default="logs/data")
+    ap.add_argument("--no-backfill", dest="backfill", action="store_false", help="live feed: skip loading recent candles on start")
     args = ap.parse_args(argv)
 
     if os.environ.get("TYPESAFE_API_KEY"):
@@ -306,9 +307,15 @@ def main(argv: list[str] | None = None) -> int:
         feed = CoinbaseFeed(cfg.symbols, history_s=max(*cfg.state.return_windows_s, cfg.state.vol_window_s) + 120, on_error=_throttled_feed_errors(log))
         desk = Desk(cfg, feed, judge, log)
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+        added = feed.backfill() if args.backfill else {}
+        if added:
+            log.write("backfill", time.time(), source="coinbase 1m candles", ticks=added)
         feed.start()
+        warm = all(n * 60 >= max(cfg.state.return_windows_s) for n in added.values()) if added else False
         print(f"live: mode={cfg.mode.value}, bot={cfg.bot}, symbols={','.join(cfg.symbols)}, logs in {cfg.log_dir}. "
-              f"Expect ~{cfg.state.vol_window_s // 60} min of insufficient_history rejections while history builds. Ctrl-C to stop.")
+              f"Backfilled {added or 'nothing'}. "
+              + ("History ready." if warm else f"Expect up to ~{cfg.state.vol_window_s // 60} min of insufficient_history rejections while history builds.")
+              + " Ctrl-C to stop.")
         try:
             done = run_live(desk, args.blocks or 0, log)
         except KeyboardInterrupt:

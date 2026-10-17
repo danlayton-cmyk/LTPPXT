@@ -1,6 +1,6 @@
 """The funnel: cheapest check first.
 
-1. free_cut    - data already in hand: bench, missing/stale data, history, spread, vol
+1. free_cut    - data already in hand: bench, missing/no-book/stale data, history, spread, vol
 2. one_call    - one data call per survivor: top-of-book depth
 3. hard_facts  - facts in code: costs vs expected move, order size vs position limit
 4. jev         - one judge call per survivor (capped), whole battery per call
@@ -81,6 +81,8 @@ class Funnel:
                 continue  # already logged when benched; not re-logged every block
             if snap is None:
                 self._reject(res, now, symbol, "free_cut", "no_data", "no tick before decision time")
+            elif not snap.has_book:
+                self._reject(res, now, symbol, "free_cut", "no_book", "newest tick has no book (backfilled history only)")
             elif now - snap.data_ts > f.max_tick_age_s:
                 self._reject(res, now, symbol, "free_cut", "stale_data", f"last tick {now - snap.data_ts:.1f}s old")
             elif any(v is None for v in snap.returns_bps.values()):

@@ -65,6 +65,7 @@ class FunnelConfig:
 # reasons clear fast; reasons that say something about the market or the model last longer.
 DEFAULT_BENCH_SECONDS: dict[str, float] = {
     "no_data": 30,
+    "no_book": 10,
     "stale_data": 30,
     "insufficient_history": 60,
     "spread_too_wide": 60,

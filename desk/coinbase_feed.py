@@ -11,6 +11,14 @@ so data age and the before-the-decision rule use exchange time, not arrival time
 - Coinbase's public limit is 10 requests/s per IP (burst 15). This feed refuses
   configurations above MAX_REQUESTS_PER_S and backs off on 429.
 - Market data only. Nothing here can place an order.
+
+Backfill: on start, backfill() loads recent 1-minute candles so the desk does not sit out
+a 15-minute warm-up. Each completed candle becomes one tick at its close time with
+bid = ask = close and zero sizes. Candles have no book, so these ticks carry no spread,
+depth or imbalance; they only supply the history behind returns and realized vol. A
+snapshot whose newest tick is a candle has has_book=False and the funnel rejects it as
+no_book, so the desk never trades off backfill alone. Realized vol over the
+first window mixes 1-minute and ~1-second returns, which is close but not identical.
 """
 
 import json
@@ -44,6 +52,25 @@ def fetch_level1(symbol: str, timeout_s: float = 3.0) -> dict:
         raise
 
 
+def fetch_candles(symbol: str, start: float, end: float, timeout_s: float = 5.0) -> list[list[float]]:
+    """1-minute candles, [[start_time, low, high, open, close, volume], ...], newest first."""
+    iso = lambda ts: datetime.fromtimestamp(ts, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    url = f"{BASE_URL}/products/{symbol}/candles?granularity=60&start={iso(start)}&end={iso(end)}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+        return json.loads(resp.read())
+
+
+def candles_to_ticks(symbol: str, candles: list[list[float]], end: float) -> list[Tick]:
+    """One tick per candle that closed at or before `end`, stamped at its close time."""
+    ticks = []
+    for c in candles:
+        close_ts, close = float(c[0]) + 60, float(c[4])
+        if close_ts <= end and close > 0:
+            ticks.append(Tick(close_ts, symbol, close, close, 0.0, 0.0))
+    return sorted(ticks, key=lambda t: t.ts)
+
+
 def parse_time(s: str) -> float:
     """RFC 3339 with up to nanosecond precision, e.g. 2026-10-17T22:48:17.780493982Z."""
     base, _, frac = s.rstrip("Z").partition(".")
@@ -68,6 +95,7 @@ class CoinbaseFeed:
         history_s: float,
         poll_interval_s: float = 1.0,
         fetch: Callable[[str], dict] = fetch_level1,
+        fetch_history: Callable[[str, float, float], list] = fetch_candles,
         on_error: Callable[[str, str], None] | None = None,
     ) -> None:
         if len(symbols) / poll_interval_s > MAX_REQUESTS_PER_S:
@@ -76,6 +104,7 @@ class CoinbaseFeed:
         self._history_s = history_s
         self._interval = poll_interval_s
         self._fetch = fetch
+        self._fetch_history = fetch_history
         self._on_error = on_error or (lambda symbol, detail: None)
         self._ticks: dict[str, list[Tick]] = {s: [] for s in self.symbols}
         self._last_seq: dict[str, int] = {}
@@ -140,6 +169,28 @@ class CoinbaseFeed:
                 drop = bisect_left([t.ts for t in buf], cutoff)  # keep a tick exactly history_s old
                 if drop:
                     del buf[:drop]
+
+    def backfill(self, now: float | None = None) -> dict[str, int]:
+        """Load completed 1-minute candles covering history_s. Call before start().
+        Returns ticks added per symbol; a failure is reported and leaves that symbol to warm up live."""
+        now = time.time() if now is None else now
+        end = (now // 60) * 60  # last completed minute: never an in-progress candle, and a fresh cache key
+        start = end - (self._history_s // 60 + 1) * 60
+        added = {}
+        for symbol in self.symbols:
+            try:
+                ticks = candles_to_ticks(symbol, self._fetch_history(symbol, start, end), end)
+            except Exception as e:
+                self._on_error(symbol, f"backfill failed, warming up live: {type(e).__name__}: {e}")
+                added[symbol] = 0
+                continue
+            with self._lock:
+                buf = self._ticks[symbol]
+                first_live = buf[0].ts if buf else float("inf")
+                ticks = [t for t in ticks if t.ts < first_live]
+                buf[:0] = ticks
+            added[symbol] = len(ticks)
+        return added
 
     def start(self) -> None:
         def loop():

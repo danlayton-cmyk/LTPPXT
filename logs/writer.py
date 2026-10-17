@@ -1,9 +1,9 @@
 """Append-only JSONL event log, one file per UTC day.
 
 Event types: snapshot, question, answer, decision, rejection, veto, order, fill,
-outcome, equity, error, stop_loss, trade_closed, feed_error. Every record is scrubbed
-before it is written: values under secret-looking keys are replaced, and any registered
-secret value is removed from strings.
+outcome, equity, error, stop_loss, trade_closed, feed_error, backfill. Every record is
+scrubbed before it is written: values under secret-looking keys are replaced, and any
+registered secret value is removed from strings.
 """
 
 import json

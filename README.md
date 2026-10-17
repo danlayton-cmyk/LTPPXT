@@ -52,7 +52,7 @@ DESK_JUDGE_SECRET=<same value> python -m desk.run --mode shadow --bot spy --feed
 
 The desk refuses to start if `TYPESAFE_API_KEY` is in its environment. The judge refuses to start with `TYPESAFE_LOG_LEVEL=debug`, because the SDK logs full request bodies at debug.
 
-The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/book?level=1` once a second per symbol, stamps each tick with the exchange's `time` field, and keeps about 17 minutes in memory. The first 15 minutes after a start are history warm-up: every symbol is rejected as `insufficient_history` until the 15m return has a reference price. Coinbase caches this endpoint for up to 2 s, so ticks arrive every 1-2 s. Data age is measured against your machine's clock, so keep it NTP-synced.
+The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/book?level=1` once a second per symbol, stamps each tick with the exchange's `time` field, and keeps about 17 minutes in memory. On start it backfills that history from Coinbase's public 1-minute candles (one request per symbol), so trading can begin as soon as fresh book data arrives. Backfilled ticks are candle closes with no spread or size; they feed returns and realized vol only. If backfill fails, or with `--no-backfill`, the first 15 minutes are warm-up and every symbol is rejected as `insufficient_history`. Coinbase caches this endpoint for up to 2 s, so ticks arrive every 1-2 s. Data age is measured against your machine's clock, so keep it NTP-synced.
 
 Modes:
 - `shadow`: Jev labels every decision, the policy and risk run, and the log records what would have happened. Nothing executes.
@@ -62,5 +62,4 @@ Tests: `python -m unittest discover -s tests -t .`
 
 ## Not built yet
 
-- Backfill on start. The live feed starts with no history, so the first 15 minutes trade nothing.
 - Tuned numbers. Every threshold, weight and limit in `desk/config.py` and `policy/policy.py` is a starting default.
