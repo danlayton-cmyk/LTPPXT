@@ -60,6 +60,23 @@ Modes:
 
 Tests: `python -m unittest discover -s tests -t .`
 
+## Running 24/7 on a VM
+
+`deploy/setup.sh` sets up an always-on Debian 12+ or Ubuntu 24.04+ machine. It was tested on Debian 12 under systemd. A Google Cloud e2-micro is enough; third-party guides say one is free in us-west1, us-central1 and us-east1, but check Google's pricing and set a budget alert.
+
+1. Create the VM: Compute Engine → Create instance → e2-micro, us-central1, Debian 12, 10 GB standard disk.
+2. Tap **SSH** next to it, then run:
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/danlayton-cmyk/LTPPXT/main/deploy/setup.sh | sudo bash
+   ```
+3. Paste the TypeSafe key when asked. It doesn't echo, and it's stored in `/etc/ltppxt/judge.env`, readable only by root.
+
+The judge and the desk run as two separate users and restart after crashes and reboots. The desk can't read the key file or the judge's environment. It starts in shadow mode with the house bot; to change that, put the settings before the command, e.g. `curl ... | sudo LTPPXT_BOT=spy bash`.
+
+Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
+
+If `ltppxt answers` stays empty, check `ltppxt logs`: a `401 Unauthorized` from api.typesafe.ai means the key is wrong. Rejections such as `thin_book` mean no candidate reached Jev yet.
+
 ## Not built yet
 
 - Tuned numbers. Every threshold, weight and limit in `desk/config.py` and `policy/policy.py` is a starting default.
