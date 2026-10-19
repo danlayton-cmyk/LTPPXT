@@ -85,7 +85,8 @@ class DeskTest(unittest.TestCase):
 
     def test_outcomes_reports_and_no_secrets_in_logs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            desk, start = make_desk(Mode.PAPER, StubJudge(BULLISH_GAMBLER), tmp)
+            # 5-minute horizon so outcomes come due inside the 800 s this test simulates.
+            desk, start = make_desk(Mode.PAPER, StubJudge(BULLISH_GAMBLER), tmp, outcome_horizon_s=300.0)
             for i in range(80):
                 desk.step(start + i * 10)
             ev = list(read_events(tmp))
@@ -99,6 +100,15 @@ class DeskTest(unittest.TestCase):
             self.assertIn("Risk vetoes", summarize(ev))
             for path in __import__("pathlib").Path(tmp).glob("*.jsonl"):
                 self.assertNotIn(SECRET, path.read_text())
+
+    def test_outcomes_wait_for_the_bots_holding_period(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            desk, start = make_desk(Mode.SHADOW, StubJudge(BULLISH_GAMBLER), tmp)  # gambler: 1800 s
+            for i in range(30):
+                desk.step(start + i * 10)
+            self.assertFalse(any(e["type"] == "outcome" for e in read_events(tmp)))
+            due = [d for d, _, _ in desk.pending_outcomes]
+            self.assertEqual(min(due), start + 1800)
 
     def test_log_scrubs_secret_keys_and_values(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -83,6 +83,16 @@ DEFAULT_BENCH_SECONDS: dict[str, float] = {
 }
 
 
+# Holding period per bot, in seconds. It sets the question wording, the expected move the
+# thresholds and cost checks use, and when outcomes are scored. Taker bots (gambler, spy)
+# pay the taker fee twice plus spread, about 12 bps at the default fees, and with the 1.5x
+# margin need moves that short horizons rarely give: on 2026-10-17 volatility that meant at
+# least ~12 min for SOL, ~20 min for ETH and ~95 min for BTC. House rests maker orders
+# (~2 bps round trip), so 5 minutes is enough. BTC is not special-cased: the cost check
+# rejects it whenever its expected move is too small.
+DEFAULT_HORIZON_S_BY_BOT: dict[str, float] = {"gambler": 1800, "spy": 1800, "house": 300}
+
+
 @dataclass(frozen=True)
 class DeskConfig:
     mode: Mode = Mode.SHADOW
@@ -92,7 +102,8 @@ class DeskConfig:
     order_size_usd: float = 250.0
     allow_short: bool = True
     block_interval_s: float = 10.0
-    outcome_horizon_s: float = 300.0
+    outcome_horizon_s: float | None = None  # set to override the per-bot holding period
+    horizon_s_by_bot: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_HORIZON_S_BY_BOT))
     judge_url: str = "http://127.0.0.1:8787"
     jev_model: str = PINNED_JEV_MODEL
     log_dir: str = "logs/data"
@@ -101,6 +112,13 @@ class DeskConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     funnel: FunnelConfig = field(default_factory=FunnelConfig)
     bench_seconds: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_BENCH_SECONDS))
+
+    @property
+    def horizon_s(self) -> float:
+        """Holding period for this desk's bot."""
+        if self.outcome_horizon_s is not None:
+            return self.outcome_horizon_s
+        return self.horizon_s_by_bot.get(self.bot, 300.0)
 
     def __post_init__(self) -> None:
         if not isinstance(self.mode, Mode):
