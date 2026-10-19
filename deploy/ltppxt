@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Check on the desk from an SSH session. Installed to /usr/local/bin/ltppxt by setup.sh.
+set -euo pipefail
+
+APP=/opt/ltppxt
+LOGS=/var/lib/ltppxt/logs
+OUT=/var/lib/ltppxt/reports
+PY="$APP/.venv/bin/python"
+today="$(date -u +%F)"
+
+as_desk() { sudo -u ltppxt env -C "$APP" "$@"; }
+
+case "${1:-status}" in
+  status)
+    systemctl --no-pager --lines=0 status ltppxt-judge ltppxt-desk || true
+    echo
+    echo "Last events today ($today UTC):"
+    sudo tail -n 5 "$LOGS/$today.jsonl" 2>/dev/null | cut -c1-200 || echo "  none yet"
+    ;;
+  logs)
+    sudo journalctl -u ltppxt-judge -u ltppxt-desk -n "${2:-50}" --no-pager
+    ;;
+  answers)
+    sudo grep -h '"type":"answer"' "$LOGS"/*.jsonl 2>/dev/null | tail -n "${2:-3}" | cut -c1-300 || echo "No Jev answers yet."
+    ;;
+  rejections)
+    sudo grep -h '"type":"rejection"' "$LOGS/$today.jsonl" 2>/dev/null | tail -n "${2:-10}" | cut -c1-250 || echo "No rejections today."
+    ;;
+  daily)
+    as_desk "$PY" -m reports.daily --logs "$LOGS" --day "${2:-$today}" --out "$OUT"
+    ;;
+  calibration)
+    as_desk "$PY" -m reports.calibration --logs "$LOGS" --out "$OUT"
+    sudo cat "$OUT/calibration.md"
+    ;;
+  update)
+    curl -fsSL "https://raw.githubusercontent.com/danlayton-cmyk/LTPPXT/${LTPPXT_REF:-main}/deploy/setup.sh" | sudo --preserve-env=LTPPXT_BOT,LTPPXT_MODE,LTPPXT_REF bash
+    ;;
+  start|stop|restart)
+    sudo systemctl "$1" ltppxt-judge ltppxt-desk
+    ;;
+  *)
+    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|update|start|stop|restart]" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,20 @@
+[Unit]
+Description=LTPPXT judge (the only process that holds the TypeSafe key)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ltppxt-judge
+EnvironmentFile=/etc/ltppxt/judge.env
+Environment=JUDGE_HOST=127.0.0.1 JUDGE_PORT=8787
+WorkingDirectory=@APP@
+ExecStart=@APP@/.venv/bin/python -m judge.server
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
