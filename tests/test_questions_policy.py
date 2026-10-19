@@ -33,6 +33,30 @@ class QuestionsTest(unittest.TestCase):
         self.assertTrue(b.by_id("exit_now").resolver(make_snap(inventory=-1.0), up))
 
 
+class HorizonTest(unittest.TestCase):
+    def test_per_bot_defaults_and_override(self):
+        self.assertEqual(DeskConfig(bot="gambler").horizon_s, 1800)
+        self.assertEqual(DeskConfig(bot="spy").horizon_s, 1800)
+        self.assertEqual(DeskConfig(bot="house").horizon_s, 300)
+        self.assertEqual(DeskConfig(bot="house", outcome_horizon_s=600).horizon_s, 600)
+
+    def test_horizon_scales_expected_move_and_question_text(self):
+        from policy.policy import expected_move_bps
+
+        snap = make_snap(rvol_bps=20.0)
+        self.assertAlmostEqual(expected_move_bps(snap, DeskConfig(bot="gambler")), 20.0 * (1800 / 900) ** 0.5)
+        self.assertAlmostEqual(expected_move_bps(snap, DeskConfig(bot="house")), 20.0 * (300 / 900) ** 0.5)
+        self.assertIn("30 minutes", load_battery("gambler", DeskConfig(bot="gambler").horizon_s).by_id("direction").instructions)
+
+    def test_longer_horizon_lets_taker_clear_costs(self):
+        """At default taker fees a 5-minute horizon cannot cover costs on this snapshot; 30 minutes can."""
+        snap = make_snap(rvol_bps=21.0, spread_bps=1.0)
+        short = decide("gambler", BULLISH_GAMBLER, snap, DeskConfig(bot="gambler", outcome_horizon_s=300), False)
+        long_ = decide("gambler", BULLISH_GAMBLER, snap, DeskConfig(bot="gambler"), False)
+        self.assertEqual(short.action, Action.HOLD)
+        self.assertEqual(long_.action, Action.ENTER_LONG)
+
+
 class PolicyTest(unittest.TestCase):
     cfg = DeskConfig()
 

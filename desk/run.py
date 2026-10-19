@@ -39,7 +39,7 @@ from state.snapshot import AccountView, Snapshot, build_snapshot
 class Desk:
     def __init__(self, cfg: DeskConfig, feed: MarketFeed, judge, log: EventLog, judge_clock: Callable[[], float] = time.monotonic) -> None:
         self.cfg, self.feed, self.judge, self.log, self.judge_clock = cfg, feed, judge, log, judge_clock
-        self.battery = load_battery(cfg.bot, cfg.outcome_horizon_s)
+        self.battery = load_battery(cfg.bot, cfg.horizon_s)
         self.book = Book()
         self.bench = Bench(cfg.bench_seconds)
         self.funnel = Funnel(cfg, self.battery, feed, judge, self.bench, log)
@@ -98,7 +98,7 @@ class Desk:
             if res.rate_limited_for_s:
                 self.jev_cooldown_until = self.judge_clock() + res.rate_limited_for_s
             for j in res.judged:
-                self.pending_outcomes.append((now + self.cfg.outcome_horizon_s, j.decision_id, j.snapshot))
+                self.pending_outcomes.append((now + self.cfg.horizon_s, j.decision_id, j.snapshot))
             if res.pick is not None:
                 self._enter(now, res.pick, marks, equity)
 
@@ -219,7 +219,7 @@ class Desk:
                        answers=result.answers, usage=result.usage, request_id=result.request_id, latency_s=round(result.latency_s, 4))
         d = decide(self.cfg.bot, result.answers, snap, self.cfg, has_position=True)
         self.log.write("decision", now, decision_id=decision_id, model=result.model, mode=self.cfg.mode.value, **d.to_log())
-        self.pending_outcomes.append((now + self.cfg.outcome_horizon_s, decision_id, snap))
+        self.pending_outcomes.append((now + self.cfg.horizon_s, decision_id, snap))
         if d.action == Action.EXIT:
             self._exit(now, snap, marks, equity, result.model, d.cost_bps, decision_id, "policy")
 

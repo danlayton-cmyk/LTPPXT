@@ -99,7 +99,7 @@ class Decision:
 
 def expected_move_bps(snap: Snapshot, cfg: DeskConfig) -> float:
     """One-sigma move over the outcome horizon, scaled from realized vol over the vol window."""
-    return snap.rvol_bps * math.sqrt(cfg.outcome_horizon_s / cfg.state.vol_window_s)
+    return snap.rvol_bps * math.sqrt(cfg.horizon_s / cfg.state.vol_window_s)
 
 
 def cost_bps(snap: Snapshot, fees: FeeConfig, notional_usd: float, passive: bool, legs: int) -> float:
