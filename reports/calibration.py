@@ -7,8 +7,9 @@ question becomes one or more binary (probability, happened) pairs:
   Noul   -> (noul, outcome)
   Choice -> (p[label], outcome == label) for every label
   Score  -> (p[level], outcome == level) for every level
-Pairs are grouped by exact model version, never pooled across versions.
-Writes calibration.md (bucket table, Brier scores) and reliability.svg.
+Pairs are grouped by exact model version and battery version, never pooled across either:
+a new battery version means the questions or their resolvers changed.
+Writes calibration.md (bucket table, Brier scores, per-label rates) and reliability.svg.
 """
 
 import argparse
@@ -25,7 +26,9 @@ N_BUCKETS = 10
 @dataclass(frozen=True)
 class Pair:
     model: str
+    battery: str  # battery version, e.g. "house-v2"
     question: str  # "<battery_version>.<question_id>"
+    label: str  # Choice label or Score level; "yes" for a Noul
     p: float
     happened: bool
 
@@ -45,12 +48,13 @@ def collect_pairs(events, include_fake: bool = False) -> list[Pair]:
         for qid, realized in out["outcomes"].items():
             if realized is None or qid not in ans["answers"]:
                 continue
-            a, name = ans["answers"][qid], f"{ans['battery_version']}.{qid}"
+            a, battery = ans["answers"][qid], ans["battery_version"]
+            name = f"{battery}.{qid}"
             if a["type"] == "noul":
-                pairs.append(Pair(ans["model"], name, float(a["noul"]), bool(realized)))
+                pairs.append(Pair(ans["model"], battery, name, "yes", float(a["noul"]), bool(realized)))
             else:
                 for label, p in a["probabilities"].items():
-                    pairs.append(Pair(ans["model"], name, float(p), str(label) == str(realized)))
+                    pairs.append(Pair(ans["model"], battery, name, str(label), float(p), str(label) == str(realized)))
     return pairs
 
 
@@ -71,7 +75,7 @@ def buckets(pairs: list[Pair], n: int = N_BUCKETS) -> list[dict]:
     return rows
 
 
-def reliability_svg(by_model: dict[str, list[dict]]) -> str:
+def reliability_svg(by_group: dict[str, list[dict]]) -> str:
     w = h = 360
     pad = 40
     span = w - 2 * pad
@@ -88,7 +92,7 @@ def reliability_svg(by_model: dict[str, list[dict]]) -> str:
         f'<text x="{w / 2}" y="{h - 8}" text-anchor="middle">predicted probability</text>',
         f'<text x="12" y="{h / 2}" text-anchor="middle" transform="rotate(-90 12 {h / 2})">observed frequency</text>',
     ]
-    for k, (model, rows) in enumerate(sorted(by_model.items())):
+    for k, (group, rows) in enumerate(sorted(by_group.items())):
         c = colors[k % len(colors)]
         pts = [xy(r["mean_p"], r["freq"]) for r in rows if r["n"]]
         if len(pts) > 1:
@@ -97,32 +101,38 @@ def reliability_svg(by_model: dict[str, list[dict]]) -> str:
             if r["n"]:
                 x, y = xy(r["mean_p"], r["freq"])
                 parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{2 + min(6, r["n"] ** 0.5 / 3):.1f}" fill="{c}"/>')
-        parts.append(f'<text x="{pad + 6}" y="{pad + 14 + 14 * k}" fill="{c}">{model}</text>')
+        parts.append(f'<text x="{pad + 6}" y="{pad + 14 + 14 * k}" fill="{c}">{group}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
 
 
 def render(pairs: list[Pair]) -> tuple[str, str]:
-    by_model: dict[str, list[Pair]] = defaultdict(list)
+    by_group: dict[tuple[str, str], list[Pair]] = defaultdict(list)
     for p in pairs:
-        by_model[p.model].append(p)
+        by_group[(p.model, p.battery)].append(p)
     lines = ["# Calibration report", ""]
     if not pairs:
         lines.append("No resolved predictions yet.")
     table_rows = {}
-    for model, mp in sorted(by_model.items()):
-        rows = buckets(mp)
-        table_rows[model] = rows
-        lines += [f"## {model}", "", f"Pairs: {len(mp)}. Brier score: {brier(mp):.4f} (0 is perfect; always answering 0.5 scores 0.25).", "",
+    for (model, battery), gp in sorted(by_group.items()):
+        rows = buckets(gp)
+        table_rows[f"{model}, {battery}"] = rows
+        lines += [f"## {model}, {battery}", "", f"Pairs: {len(gp)}. Brier score: {brier(gp):.4f} (0 is perfect; always answering 0.5 scores 0.25).", "",
                   "| bucket | n | mean predicted | observed |", "|---|---|---|---|"]
         for r in rows:
             mp_, fq = ("-" if r["mean_p"] is None else f"{r['mean_p']:.3f}"), ("-" if r["freq"] is None else f"{r['freq']:.3f}")
             lines.append(f"| {r['lo']:.1f}-{r['hi']:.1f} | {r['n']} | {mp_} | {fq} |")
         by_q: dict[str, list[Pair]] = defaultdict(list)
-        for p in mp:
+        by_label: dict[tuple[str, str], list[Pair]] = defaultdict(list)
+        for p in gp:
             by_q[p.question].append(p)
+            by_label[(p.question, p.label)].append(p)
         lines += ["", "| question | pairs | Brier |", "|---|---|---|"]
         lines += [f"| {q} | {len(v)} | {brier(v):.4f} |" for q, v in sorted(by_q.items())]
+        # A label priced far from how often it happens stands out here; the bucket table mixes it with every other label.
+        lines += ["", "| question | label | pairs | mean predicted | observed |", "|---|---|---|---|---|"]
+        lines += [f"| {q} | {label} | {len(v)} | {sum(p.p for p in v) / len(v):.3f} | {sum(p.happened for p in v) / len(v):.3f} |"
+                  for (q, label), v in sorted(by_label.items())]
         lines.append("")
     lines.append("Note: pairs within one decision are correlated (a Choice yields one pair per label), so treat bucket counts as an upper bound on independent evidence.")
     return "\n".join(lines) + "\n", reliability_svg(table_rows)
