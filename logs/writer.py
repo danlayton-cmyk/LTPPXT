@@ -1,9 +1,11 @@
 """Append-only JSONL event log, one file per UTC day.
 
 Event types: snapshot, question, answer, decision, rejection, veto, order, fill,
-outcome, equity, error, stop_loss, trade_closed, feed_error, backfill. Every record is
-scrubbed before it is written: values under secret-looking keys are replaced, and any
-registered secret value is removed from strings.
+outcome, equity, error, stop_loss, trade_closed, feed_error, backfill. Shadow mode's
+simulated trades (desk/hypothetical.py) use their own types, so nothing reads them as
+fills: hypothetical_order, hypothetical_fill, hypothetical_trade_closed,
+hypothetical_error. Every record is scrubbed before it is written: values under
+secret-looking keys are replaced, and any registered secret value is removed from strings.
 """
 
 import json

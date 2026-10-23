@@ -7,6 +7,10 @@ Per block: feed new ticks to the paper broker, build snapshots from data stamped
 the block, resolve outcomes that have come due, then either manage the open position
 (no scanning) or run the funnel. The judge deadline is the start of the next block; a
 decision that misses it holds.
+
+In shadow mode a hypothetical ledger (desk/hypothetical.py) also gives each would-be entry
+a simulated fill and exit, so shadow's would-be trades get a hypothetical P&L. It never
+changes what the desk scans, asks or logs otherwise.
 """
 
 import argparse
@@ -25,6 +29,7 @@ from broker.base import Order
 from desk.coinbase_feed import CoinbaseFeed
 from desk.config import DeskConfig, Mode
 from desk.feed import MarketFeed, ReplayFeed, SyntheticFeed
+from desk.hypothetical import HypotheticalLedger
 from filter.funnel import Funnel, Judged
 from judge.client import JudgeClient, JudgeError, JudgeRateLimited
 from judge.fake import FakeJudge
@@ -45,6 +50,7 @@ class Desk:
         self.funnel = Funnel(cfg, self.battery, feed, judge, self.bench, log)
         self.paper = make_broker(cfg) if cfg.mode == Mode.PAPER else None
         self.broker = GuardedBroker(self.paper, cfg.risk, cfg.jev_model) if self.paper else None
+        self.hypothetical = HypotheticalLedger(cfg, feed, log) if cfg.mode == Mode.SHADOW else None
         self.pending_outcomes: list[tuple[float, str, Snapshot]] = []
         self.prev_mid: dict[str, float] = {}
         self.fed_until = -float("inf")
@@ -87,6 +93,8 @@ class Desk:
 
         snaps = {s: self._snapshot(s, now, equity) for s in self.cfg.symbols}
         self._resolve_outcomes(now, snaps, equity)
+        if self.hypothetical is not None:
+            self.hypothetical.step(now, snaps, marks, self.prev_mid)
 
         if self.book.position is not None:
             self._manage_position(now, snaps[self.book.position.symbol], marks, equity, deadline)
@@ -181,6 +189,8 @@ class Desk:
             self.book.open(OpenPosition(fill.symbol, fill.side, fill.qty, fill.price, fill.ts, pick.decision_id))
         elif self.broker is not None:
             self.book.pending = PendingEntry(order.id, order.symbol, pick.decision_id, now)
+        elif self.hypothetical is not None:  # shadow: a simulated fill, logged as hypothetical
+            self.hypothetical.enter(now, order, pick, marks, self.prev_mid)
 
     def _manage_pending(self, now: float) -> None:
         p = self.book.pending

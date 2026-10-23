@@ -56,7 +56,8 @@ The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/boo
 
 Modes:
 - `shadow`: Jev labels every decision, the policy and risk run, and the log records what would have happened. Nothing executes.
-- `paper`: the policy executes against `PaperBroker`.
+  A hypothetical ledger (`desk/hypothetical.py`) gives each would-be entry that passed risk a simulated fill on its own `PaperBroker`, one trade at a time, and closes it at the stop-loss or the bot's holding period without asking Jev. `ltppxt daily` reports the result under "Hypothetical trades". It is simulated P&L, never real, and it does not change what shadow mode scans, asks or logs otherwise.
+- `paper`: the policy executes against `PaperBroker`. While a position is open it stops scanning other symbols and asks Jev the exit question every block.
 
 Tests: `python -m unittest discover -s tests -t .`
 
