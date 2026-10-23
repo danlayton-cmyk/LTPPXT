@@ -27,10 +27,23 @@ class QuestionsTest(unittest.TestCase):
 
     def test_resolvers(self):
         b = load_battery("gambler", 300)
-        now, up = make_snap(mid=100.0, spread_bps=2.0), make_snap(mid=100.1)
+        now, up = make_snap(mid=100.0, spread_bps=2.0), make_snap(mid=100.2)
         self.assertEqual(b.by_id("direction").resolver(now, up), "up")
         self.assertIsNone(b.by_id("exit_now").resolver(now, up))  # flat book: nothing to resolve
         self.assertTrue(b.by_id("exit_now").resolver(make_snap(inventory=-1.0), up))
+
+    def test_bands_are_bps_not_spreads(self):
+        # A 1-cent spread on BTC is ~0.001 bps; a 5 bp move must not count as large.
+        house = load_battery("house", 300)
+        now, gentle, big = make_snap(mid=100.0, spread_bps=0.001), make_snap(mid=100.05), make_snap(mid=100.2)
+        self.assertFalse(house.by_id("toxic_flow").resolver(now, gentle))
+        self.assertTrue(house.by_id("toxic_flow").resolver(now, big))
+        self.assertEqual(house.by_id("quote_lean").resolver(now, gentle), "bid")
+        self.assertEqual(house.by_id("quote_lean").resolver(now, big), "neither")
+        self.assertIn("10 bps", house.to_wire()["toxic_flow"]["instructions"])
+        gambler = load_battery("gambler", 1800)  # 10 bps * sqrt(6) -> 24 bps
+        self.assertEqual(gambler.by_id("direction").resolver(now, make_snap(mid=100.2)), "flat")
+        self.assertEqual(gambler.by_id("direction").resolver(now, make_snap(mid=100.3)), "up")
 
 
 class HorizonTest(unittest.TestCase):
