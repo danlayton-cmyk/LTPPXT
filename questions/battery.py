@@ -10,6 +10,7 @@ Choice, level for Score), or None when the outcome cannot be measured from marke
 Resolved outcomes feed the calibration report.
 """
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
@@ -81,6 +82,18 @@ class Battery:
 
 def move_bps(now: Snapshot, later: Snapshot) -> float:
     return (later.mid / now.mid - 1) * 1e4
+
+
+# What counts as a real move over a horizon, in bps. Measured in spreads it was useless: BTC-USD
+# quotes a 1-cent spread (~0.001 bps), so nearly every move was "more than two spreads" and the
+# house-v1 questions resolved the same way about 90% of the time (2026-10-21..23 shadow logs).
+# 10 bps at 5 minutes: in Coinbase 1-minute candles on 2026-10-23, 23-37% of 5-minute moves in
+# BTC, ETH and SOL exceeded it. Other horizons scale by sqrt(time).
+BAND_BPS_AT_5_MIN = 10.0
+
+
+def band_bps(horizon_s: float) -> int:
+    return round(BAND_BPS_AT_5_MIN * math.sqrt(horizon_s / 300))
 
 
 def against_inventory(now: Snapshot, later: Snapshot) -> bool | None:

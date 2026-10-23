@@ -1,18 +1,18 @@
 """Gambler: a momentum taker. Crosses the spread when a move looks likely to continue."""
 
-from questions.battery import Battery, against_inventory, choice, horizon_text, move_bps, noul, score
+from questions.battery import Battery, against_inventory, band_bps, choice, horizon_text, move_bps, noul, score
 
 
 def battery(horizon_s: float) -> Battery:
-    h = horizon_text(horizon_s)
+    h, b = horizon_text(horizon_s), band_bps(horizon_s)
 
     def direction(now, later):
-        m, band = move_bps(now, later), now.spread_bps
-        return "up" if m > band else "down" if m < -band else "flat"
+        m = move_bps(now, later)
+        return "up" if m > b else "down" if m < -b else "flat"
 
     return Battery(
         bot="gambler",
-        version="gambler-v1",
+        version="gambler-v2",
         questions=(
             choice(
                 "regime",
@@ -29,9 +29,9 @@ def battery(horizon_s: float) -> Battery:
                 "direction",
                 f"Where will `mid` be {h} from now relative to its current value?",
                 {
-                    "up": "Higher by more than the current spread (`spread_bps`).",
-                    "down": "Lower by more than the current spread.",
-                    "flat": "Within one spread of the current mid.",
+                    "up": f"Higher by more than {b} bps.",
+                    "down": f"Lower by more than {b} bps.",
+                    "flat": f"Within {b} bps of the current mid.",
                 },
                 resolver=direction,
             ),
