@@ -19,7 +19,7 @@ what to do with the answers, and code-only risk checks sit in front of every ord
 | `book/` | One open position at a time (no scanning while one is open). A bench where the rejecting check sets how long a symbol sits out. |
 | `logs/` | JSONL event log, one file per UTC day, in `logs/data/` (git-ignored). Scrubs secret-looking keys and known secret values. |
 | `judge/` | The only process that holds the TypeSafe key. Desk calls it with a separate desk secret. Returns Jev's answers raw. |
-| `reports/` | Calibration report (buckets, Brier, reliability SVG) and daily summary. |
+| `reports/` | Calibration report, one section per model and battery version (buckets, Brier, per-label rates, reliability SVG), and daily summary. |
 | `desk/` | Config, market feeds (synthetic, replay, live Coinbase), and the run loop. |
 
 ## Jev
