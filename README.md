@@ -76,6 +76,8 @@ The judge and the desk run as two separate users and restart after crashes and r
 
 Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
 
+`ltppxt health` prints a one-screen health check: service state and restarts, the deployed commit, disk and clock, blocks, stalls and errors per day, Jev answers by model, and shadow mode's hypothetical (simulated) trades. `ltppxt export` prints the same check and writes all of the desk's data to one `.tar.gz` in your home directory: the event logs and reports, the services' journal, installed unit files, the deployed commit and `pip freeze`. It leaves out `/etc/ltppxt` (the TypeSafe key and the desk secret), removes those values from the journal, and stops without an archive if one turns up in the data. To get the file, click the download icon at the top of the SSH-in-browser window and enter its file name. Both commands are read-only for the desk (`deploy/export.py`).
+
 If `ltppxt answers` stays empty, check `ltppxt logs`: a `401 Unauthorized` from api.typesafe.ai means the key is wrong. Rejections such as `thin_book` mean no candidate reached Jev yet.
 
 ## Not built yet

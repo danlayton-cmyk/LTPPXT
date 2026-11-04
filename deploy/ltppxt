@@ -33,6 +33,12 @@ case "${1:-status}" in
     as_desk "$PY" -m reports.calibration --logs "$LOGS" --out "$OUT"
     sudo cat "$OUT/calibration.md"
     ;;
+  health)
+    sudo python3 "$APP/deploy/export.py" --health-only
+    ;;
+  export)
+    sudo python3 "$APP/deploy/export.py" --user "${SUDO_USER:-$(id -un)}"
+    ;;
   update)
     curl -fsSL "https://raw.githubusercontent.com/danlayton-cmyk/LTPPXT/${LTPPXT_REF:-main}/deploy/setup.sh" | sudo --preserve-env=LTPPXT_BOT,LTPPXT_MODE,LTPPXT_REF bash
     ;;
@@ -40,7 +46,7 @@ case "${1:-status}" in
     sudo systemctl "$1" ltppxt-judge ltppxt-desk
     ;;
   *)
-    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|update|start|stop|restart]" >&2
+    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|health|export|update|start|stop|restart]" >&2
     exit 2
     ;;
 esac
