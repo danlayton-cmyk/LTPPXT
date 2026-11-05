@@ -110,6 +110,35 @@ class DeskTest(unittest.TestCase):
             due = [d for d, _, _ in desk.pending_outcomes]
             self.assertEqual(min(due), start + 1800)
 
+    def test_scheduled_sample_rotates_and_never_trades(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # A judge that always says hold-worthy things still gets sampled; a short horizon gives several samples.
+            desk, start = make_desk(Mode.SHADOW, StubJudge(BULLISH_GAMBLER), tmp, sample_on_schedule=True, outcome_horizon_s=60.0)
+            for i in range(40):
+                desk.step(start + i * 10)
+            ev = list(read_events(tmp))
+            samples = [e for e in ev if e["type"] == "answer" and e.get("source") == "schedule"]
+            self.assertGreaterEqual(len(samples), 5)
+            self.assertTrue(all("-sample-" in e["decision_id"] for e in samples))
+            symbols = [e["decision_id"].split("-sample-")[0].removeprefix("gambler-") for e in samples]
+            self.assertEqual(symbols[:4], ["BTC-USD", "ETH-USD", "BTC-USD", "ETH-USD"])
+            gaps = [b["ts"] - a["ts"] for a, b in zip(samples, samples[1:])]
+            self.assertTrue(all(g >= 60 for g in gaps))
+            sample_ids = {e["decision_id"] for e in samples}
+            self.assertFalse(any(e["type"] in ("decision", "order") and e.get("decision_id") in sample_ids for e in ev))
+            self.assertTrue(any(e["type"] == "outcome" and e["decision_id"] in sample_ids for e in ev))
+            funnel = [e for e in ev if e["type"] == "answer" and e.get("source") == "funnel"]
+            self.assertTrue(funnel)
+            pairs = collect_pairs(ev)
+            self.assertIn("schedule", {p.source for p in pairs})
+
+    def test_sampler_off_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            desk, start = make_desk(Mode.SHADOW, StubJudge(BULLISH_GAMBLER), tmp)
+            for i in range(20):
+                desk.step(start + i * 10)
+            self.assertFalse(any(e.get("source") == "schedule" for e in read_events(tmp)))
+
     def test_log_scrubs_secret_keys_and_values(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = EventLog(tmp, secrets=[SECRET])

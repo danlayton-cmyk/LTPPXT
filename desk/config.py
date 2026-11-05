@@ -112,6 +112,9 @@ class DeskConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     funnel: FunnelConfig = field(default_factory=FunnelConfig)
     bench_seconds: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_BENCH_SECONDS))
+    # Ask Jev about one symbol per holding period on a fixed rotation, regardless of the funnel,
+    # so calibration has questions that were not selected by the funnel's filters. Never trades.
+    sample_on_schedule: bool = False
 
     @property
     def horizon_s(self) -> float:

@@ -58,6 +58,8 @@ class Desk:
         self.day: str | None = None
         self.day_start_equity = cfg.starting_cash_usd
         self.jev_cooldown_until = -float("inf")
+        self.next_sample_at = -float("inf")
+        self.sample_index = 0
 
     # -- accounting ------------------------------------------------------------------
 
@@ -110,6 +112,9 @@ class Desk:
             if res.pick is not None:
                 self._enter(now, res.pick, marks, equity)
 
+        if self.cfg.sample_on_schedule:
+            self._sample(now, snaps, deadline)
+
         for s, snap in snaps.items():
             if snap is not None:
                 self.prev_mid[s] = snap.mid
@@ -121,6 +126,46 @@ class Desk:
             realized_pnl_usd=round(self.paper.realized_pnl_usd, 4) if self.paper else 0.0,
             position=None if pos is None else {"symbol": pos.symbol, "side": pos.side, "qty": pos.qty},
         )
+
+    def _sample(self, now: float, snaps: dict[str, Snapshot | None], deadline: float) -> None:
+        """One question per holding period on a fixed symbol rotation, asked whatever the funnel thinks.
+        Only data-quality checks apply. It logs snapshot, question, answer and (later) outcome with
+        source="schedule"; it never logs a decision, places an order, or benches a symbol."""
+        if now < self.next_sample_at or self.judge_clock() < self.jev_cooldown_until:
+            return
+        symbols = self.cfg.symbols
+        symbol = symbols[self.sample_index % len(symbols)]
+        self.sample_index += 1
+        snap = snaps.get(symbol)
+        problem = None
+        if snap is None:
+            problem = "no_data"
+        elif not snap.has_book:
+            problem = "no_book"
+        elif now - snap.data_ts > self.cfg.funnel.max_tick_age_s:
+            problem = "stale_data"
+        elif any(v is None for v in snap.returns_bps.values()):
+            problem = "insufficient_history"
+        if problem is not None:
+            # Try the next symbol next block; the schedule slot stays open.
+            self.log.write("rejection", now, symbol=symbol, stage="schedule", check=problem, detail="scheduled sample skipped", bot=self.cfg.bot, benched_until=None)
+            return
+        self.next_sample_at = now + self.cfg.horizon_s
+        decision_id = f"{self.cfg.bot}-{symbol}-sample-{int(now * 1000)}"
+        state = snap.to_state()
+        questions = self.battery.to_wire()
+        self.log.write("snapshot", now, decision_id=decision_id, snapshot=state, data_ts=snap.data_ts, source="schedule")
+        self.log.write("question", now, decision_id=decision_id, bot=self.cfg.bot, battery_version=self.battery.version, state=state, questions=questions, source="schedule")
+        try:
+            result = self.judge.ask(state, questions, deadline)
+        except JudgeError as e:
+            if isinstance(e, JudgeRateLimited):
+                self.jev_cooldown_until = self.judge_clock() + (e.retry_after_s or 5.0)
+            self.log.write("error", now, decision_id=decision_id, check=e.check, detail=f"scheduled sample: {e}")
+            return
+        self.log.write("answer", now, decision_id=decision_id, bot=self.cfg.bot, battery_version=self.battery.version, source="schedule", model=result.model,
+                       answers=result.answers, usage=result.usage, request_id=result.request_id, latency_s=round(result.latency_s, 4))
+        self.pending_outcomes.append((now + self.cfg.horizon_s, decision_id, snap))
 
     def _snapshot(self, symbol: str, now: float, equity: float) -> Snapshot | None:
         # Reach back past the longest window so its reference price is found even when ticks are sparse.
@@ -225,7 +270,7 @@ class Desk:
                 self.jev_cooldown_until = self.judge_clock() + (e.retry_after_s or 5.0)
             self.log.write("error", now, decision_id=decision_id, check=e.check, detail=f"holding position: {e}")
             return
-        self.log.write("answer", now, decision_id=decision_id, bot=self.cfg.bot, battery_version=self.battery.version, model=result.model,
+        self.log.write("answer", now, decision_id=decision_id, bot=self.cfg.bot, battery_version=self.battery.version, source="exit", model=result.model,
                        answers=result.answers, usage=result.usage, request_id=result.request_id, latency_s=round(result.latency_s, 4))
         d = decide(self.cfg.bot, result.answers, snap, self.cfg, has_position=True)
         self.log.write("decision", now, decision_id=decision_id, model=result.model, mode=self.cfg.mode.value, **d.to_log())
@@ -300,6 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--judge", choices=["http", "fake"], default="http")
     ap.add_argument("--blocks", type=int, default=None, help="default 360 offline; live runs until stopped")
     ap.add_argument("--log-dir", default="logs/data")
+    ap.add_argument("--no-sample", dest="sample", action="store_false", help="skip the scheduled calibration sample (one Jev call per holding period)")
     ap.add_argument("--no-backfill", dest="backfill", action="store_false", help="live feed: skip loading recent candles on start")
     args = ap.parse_args(argv)
 
@@ -307,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         print("refusing to start: TYPESAFE_API_KEY is set in the desk's environment. Only the judge may hold it.", file=sys.stderr)
         return 2
 
-    cfg = replace(DeskConfig(), mode=Mode(args.mode), bot=args.bot, log_dir=args.log_dir)
+    cfg = replace(DeskConfig(), mode=Mode(args.mode), bot=args.bot, log_dir=args.log_dir, sample_on_schedule=args.sample)
     secret = os.environ.get("DESK_JUDGE_SECRET", "")
     log = EventLog(cfg.log_dir, secrets=[secret])
     judge = FakeJudge() if args.judge == "fake" else JudgeClient(cfg.judge_url, secret)

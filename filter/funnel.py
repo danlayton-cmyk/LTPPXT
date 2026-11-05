@@ -145,7 +145,7 @@ class Funnel:
                 self._reject(res, now, snap.symbol, "jev", e.check, str(e))
                 continue
             self.log.write(
-                "answer", now, decision_id=decision_id, bot=self.battery.bot, battery_version=self.battery.version,
+                "answer", now, decision_id=decision_id, bot=self.battery.bot, battery_version=self.battery.version, source="funnel",
                 model=result.model, answers=result.answers, usage=result.usage, request_id=result.request_id, latency_s=round(result.latency_s, 4),
             )
             decision = decide(self.battery.bot, result.answers, snap, self.cfg, has_position=False)
