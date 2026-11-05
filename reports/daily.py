@@ -8,6 +8,7 @@ import argparse
 from collections import Counter
 from pathlib import Path
 
+from desk.config import COINBASE_US_ENTRY_FEES
 from logs.writer import read_events
 
 
@@ -58,6 +59,15 @@ def summarize(events: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def coinbase_net_usd(closed: dict) -> float:
+    """A closed hypothetical trade's gross P&L less Coinbase US entry-level fees on both legs. The gross
+    already includes spread crossing at simulated fill prices. Logs from before entry_order_type existed
+    are inferred from the bot in the decision_id: house rests limit (maker) entries, the others cross."""
+    entry_type = closed.get("entry_order_type") or ("limit" if str(closed.get("decision_id", "")).startswith("house-") else "market")
+    entry_fee = COINBASE_US_ENTRY_FEES.maker_fee_bps if entry_type == "limit" else COINBASE_US_ENTRY_FEES.taker_fee_bps
+    return closed["gross_pnl_usd"] - closed["notional_usd"] * (entry_fee + COINBASE_US_ENTRY_FEES.taker_fee_bps) / 1e4
+
+
 def hypothetical_lines(events: list[dict], shadow: bool) -> list[str]:
     """Shadow mode's would-be trades as desk/hypothetical.py filled and closed them. Simulated:
     nothing executed. A trade counts on the day it closes."""
@@ -91,6 +101,11 @@ def hypothetical_lines(events: list[dict], shadow: bool) -> list[str]:
         bps = lambda key: sum(c[key] / c["notional_usd"] * 1e4 for c in closed) / len(closed)
         lines.append(f"Hypothetical PnL after fees and gas: ${net:,.2f} (gross ${gross:,.2f} at simulated fill prices, fees and gas ${costs:,.2f})")
         lines.append(f"Mean per trade: gross {bps('gross_pnl_usd'):+.2f} bps, fees and gas {bps('costs_usd'):.2f} bps, net {bps('net_pnl_usd'):+.2f} bps")
+        cb_net = sum(coinbase_net_usd(c) for c in closed)
+        cb_bps = sum(coinbase_net_usd(c) / c["notional_usd"] * 1e4 for c in closed) / len(closed)
+        lines.append(f"Hypothetical PnL re-priced at Coinbase US entry-level fees ({COINBASE_US_ENTRY_FEES.maker_fee_bps / 100:.2f}% maker, "
+                     f"{COINBASE_US_ENTRY_FEES.taker_fee_bps / 100:.2f}% taker; exits are taker): ${cb_net:,.2f}, mean {cb_bps:+.2f} bps per trade. "
+                     "The desk's configured fees are far lower than these.")
     else:
         lines.append("Hypothetical PnL: none yet, no round trip closed")
     if unclosed:

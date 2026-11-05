@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 
 from desk.config import DeskConfig
-from policy.policy import Action, decide, threshold
+from policy.policy import Action, cost_bps, decide, round_trip_cost_bps, threshold
 from questions import BOTS, OTHER_LABEL, load_battery
 from questions.battery import choice
 from tests.helpers import BULLISH_GAMBLER, choice as c, make_snap, noul, score
@@ -77,6 +77,16 @@ class PolicyTest(unittest.TestCase):
         self.assertLess(threshold(Action.ENTER_LONG, 20, 2), threshold(Action.ENTER_LONG, 20, 10))
         self.assertEqual(threshold(Action.ENTER_LONG, 20, 25), 1.0)
         self.assertEqual(threshold(Action.ENTER_LONG, 100, 0), 0.60)  # floor
+
+    def test_house_entry_prices_its_market_exit(self):
+        cfg, snap = DeskConfig(bot="house"), make_snap(spread_bps=2.0)
+        fees = cfg.fees  # maker 1, taker 5, slippage 1
+        self.assertAlmostEqual(round_trip_cost_bps(snap, fees, 250.0, passive_entry=True), 1 + (5 + 1 + 1))
+        self.assertAlmostEqual(round_trip_cost_bps(snap, fees, 250.0, passive_entry=False), cost_bps(snap, fees, 250.0, False, 2))
+        answers = {"quote_lean": c({"bid": 0.9, "ask": 0.05, "neither": 0.04, "other": 0.01}), "toxic_flow": noul(0.1),
+                   "liquidity_calm": score([0, 0, 0.1, 0.9]), "inventory_adverse": noul(0.1)}
+        d = decide("house", answers, snap, cfg, has_position=False)
+        self.assertAlmostEqual(d.cost_bps, 8.0)  # was 2.0 when the exit was priced as a maker leg
 
     def test_exit_bar_lower_than_entry(self):
         snap = make_snap(inventory=1.0)
