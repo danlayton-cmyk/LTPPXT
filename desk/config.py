@@ -33,10 +33,17 @@ class StateConfig:
 
 @dataclass(frozen=True)
 class FeeConfig:
+    # Defaults are far below Coinbase US entry-level spot fees; see COINBASE_US_ENTRY_FEES.
     taker_fee_bps: float = 5.0
     maker_fee_bps: float = 1.0
     gas_usd_per_fill: float = 0.0  # set above zero for on-chain venues
     slippage_bps: float = 1.0  # paper market orders fill this far through the touch
+
+
+# Coinbase Advanced US spot, entry-level tier (under $10K 30-day volume): 0.50% maker,
+# 0.90% taker, per Coinbase's fee change effective 2026-09-16. Used by the daily report's
+# "net at Coinbase fees" line; the desk itself still runs on FeeConfig().
+COINBASE_US_ENTRY_FEES = FeeConfig(taker_fee_bps=90.0, maker_fee_bps=50.0)
 
 
 @dataclass(frozen=True)

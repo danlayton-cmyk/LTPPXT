@@ -46,6 +46,7 @@ class HypotheticalLedger:
         self.book = Book()
         self.bench = Bench(cfg.bench_seconds)  # the ledger's own; the desk's bench never sees it
         self.entry_costs_usd = 0.0  # fee + gas of the open position's entry fill
+        self.entry_order_type: str | None = None  # "limit" (maker) or "market" (taker), for the fee re-pricing in reports
         self.busy: str | None = None  # what was open when this block started
         self.fed_until = -math.inf
         self.day: str | None = None
@@ -70,6 +71,7 @@ class HypotheticalLedger:
         """Offer a would-be entry that passed the desk's risk checks."""
         with self._contained(now):
             fields = self._order_fields(order, pick.decision_id, "entry")
+            self.entry_order_type = order.type
             if self.busy is not None:
                 self.log.write("hypothetical_order", now, status="skipped", reason=self.busy, **fields)
                 return
@@ -158,7 +160,7 @@ class HypotheticalLedger:
             "hypothetical_trade_closed", now, decision_id=closed.decision_id, exit_reason=reason, symbol=closed.symbol, side=closed.side,
             qty=closed.qty, entry_ts=closed.entry_ts, entry_price=closed.entry_price, exit_price=fill.price, held_s=round(now - closed.entry_ts, 3),
             notional_usd=round(notional, 6), gross_pnl_usd=round(gross, 6), costs_usd=round(costs, 6), net_pnl_usd=round(gross - costs, 6),
-            net_bps=round((gross - costs) / notional * 1e4, 3), mode=self.cfg.mode.value, **extra,
+            net_bps=round((gross - costs) / notional * 1e4, 3), entry_order_type=self.entry_order_type, mode=self.cfg.mode.value, **extra,
         )
         self.entry_costs_usd = 0.0
         return True

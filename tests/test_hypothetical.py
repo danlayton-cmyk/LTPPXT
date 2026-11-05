@@ -99,6 +99,7 @@ class LedgerTest(unittest.TestCase):
             self.assertAlmostEqual(fill["price"], order["limit_price"])
             self.assertAlmostEqual(fill["fee_usd"], fill["price"] * fill["qty"] * 1 / 1e4)
             self.assertIsNotNone(desk.hypothetical.book.position)
+            self.assertEqual(desk.hypothetical.entry_order_type, "limit")
 
     def test_daily_loss_limit_binds_on_hypothetical_equity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,8 +186,17 @@ class DailyReportTest(unittest.TestCase):
         self.assertIn("Hypothetical PnL after fees and gas: $0.50 (gross $1.10 at simulated fill prices, fees and gas $0.60)", md)
         self.assertIn("Mean per trade: gross +22.00 bps, fees and gas 12.00 bps, net +10.00 bps", md)
         self.assertIn("Filled entries with no close in this log: 1", md)  # d4
+        self.assertIn("Coinbase US entry-level fees (0.50% maker, 0.90% taker; exits are taker): $-7.90, mean -158.00 bps per trade.", md)
         self.assertIn("| X | long | 1 | 1 | $1.00 | +40.00 |", md)
         self.assertIn("| X | short | 1 | 0 | $-0.50 | -20.00 |", md)
+
+    def test_coinbase_repricing_uses_maker_for_limit_entries(self):
+        from reports.daily import coinbase_net_usd
+        base = {"gross_pnl_usd": 0.0, "notional_usd": 1000.0}
+        self.assertAlmostEqual(coinbase_net_usd({**base, "entry_order_type": "limit"}), -14.0)  # 50 + 90 bps
+        self.assertAlmostEqual(coinbase_net_usd({**base, "entry_order_type": "market"}), -18.0)  # 90 + 90 bps
+        self.assertAlmostEqual(coinbase_net_usd({**base, "decision_id": "house-BTC-USD-1"}), -14.0)  # older log: inferred
+        self.assertAlmostEqual(coinbase_net_usd({**base, "decision_id": "gambler-BTC-USD-1"}), -18.0)
 
     def test_shadow_day_without_ledger_events_says_so(self):
         md = summarize([self.shadow_equity])

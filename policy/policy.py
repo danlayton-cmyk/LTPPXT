@@ -7,7 +7,8 @@ Thresholds: one per action, from the break-even probability of a bet that wins G
 right and loses L bps if wrong: p* = L / (L + G). With an expected move of M bps and a
 cost of C bps, an entry wins M - C and loses M + C, so p* = (M + C) / 2M. Costs are
 inflated by the risk fee margin first, so the policy never picks a trade the fees-plus-gas
-veto would block. An exit pays only one leg of costs, so its bar is lower. Each action
+veto would block. An entry is priced as its own leg plus a market-order exit (house's maker
+entry still pays taker on the way out). An exit pays only one leg of costs, so its bar is lower. Each action
 also has a floor. When costs reach the expected move, p* hits 1 and the action is impossible.
 
 The combined probability is a weighted average of Jev probabilities. That is a heuristic,
@@ -110,6 +111,12 @@ def cost_bps(snap: Snapshot, fees: FeeConfig, notional_usd: float, passive: bool
     return legs * (fee + half_spread + gas)
 
 
+def round_trip_cost_bps(snap: Snapshot, fees: FeeConfig, notional_usd: float, passive_entry: bool) -> float:
+    """An entry's own leg plus the exit it commits to. Exits are always market orders, so a
+    passive (maker) entry still pays a taker leg and the spread on the way out."""
+    return cost_bps(snap, fees, notional_usd, passive_entry, 1) + cost_bps(snap, fees, notional_usd, False, 1)
+
+
 def threshold(action: Action, move_bps: float, cost: float) -> float:
     if move_bps <= 0:
         return 1.0
@@ -180,8 +187,10 @@ def decide(bot: str, answers: dict, snap: Snapshot, cfg: DeskConfig, has_positio
         weights = WEIGHTS[bot][action]
         contributions = {f: round(w * feats[f], 4) for f, w in weights.items()}
         p = sum(w * feats[f] for f, w in weights.items()) / sum(weights.values())
-        legs = 1 if action == Action.EXIT else 2
-        c = cost_bps(snap, cfg.fees, cfg.order_size_usd, passive and action != Action.EXIT, legs)  # exits cross the spread
+        if action == Action.EXIT:
+            c = cost_bps(snap, cfg.fees, cfg.order_size_usd, False, 1)  # exits cross the spread
+        else:
+            c = round_trip_cost_bps(snap, cfg.fees, cfg.order_size_usd, passive)
         scores[action.value] = ActionScore(action, p, threshold(action, move, c * cfg.risk.fee_edge_margin), contributions)
 
     best = max(scores.values(), key=lambda s: s.margin)
@@ -194,7 +203,7 @@ def decide(bot: str, answers: dict, snap: Snapshot, cfg: DeskConfig, has_positio
         p=best.p,
         threshold=best.threshold,
         expected_move_bps=move,
-        cost_bps=cost_bps(snap, cfg.fees, cfg.order_size_usd, passive and not is_exit, 1 if is_exit else 2),
+        cost_bps=cost_bps(snap, cfg.fees, cfg.order_size_usd, False, 1) if is_exit else round_trip_cost_bps(snap, cfg.fees, cfg.order_size_usd, passive),
         passive=passive and not is_exit,
         scores=scores,
     )
