@@ -74,7 +74,7 @@ Tests: `python -m unittest discover -s tests -t .`
 
 The judge and the desk run as two separate users and restart after crashes and reboots. The desk can't read the key file or the judge's environment. It starts in shadow mode with the house bot; to change that, put the settings before the command, e.g. `curl ... | sudo LTPPXT_BOT=spy bash`.
 
-Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
+Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration`, `ltppxt replay` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
 
 If `ltppxt answers` stays empty, check `ltppxt logs`: a `401 Unauthorized` from api.typesafe.ai means the key is wrong. Rejections such as `thin_book` mean no candidate reached Jev yet.
 
