@@ -1,0 +1,11 @@
+[Unit]
+Description=LTPPXT: hourly BigQuery export of event logs
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+# Run a missed export after a reboot or a stop.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

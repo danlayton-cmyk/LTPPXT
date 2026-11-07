@@ -1,0 +1,17 @@
+[
+  {"name": "day", "type": "DATE", "mode": "REQUIRED", "description": "UTC day of ts; the partition column, same as the JSONL file name"},
+  {"name": "ts", "type": "TIMESTAMP", "mode": "REQUIRED", "description": "event time"},
+  {"name": "type", "type": "STRING", "mode": "REQUIRED", "description": "event type, e.g. decision, answer, hypothetical_trade_closed"},
+  {"name": "bot", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "symbol", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "decision_id", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "model", "type": "STRING", "mode": "NULLABLE", "description": "exact model string Jev returned"},
+  {"name": "mode", "type": "STRING", "mode": "NULLABLE", "description": "shadow or paper"},
+  {"name": "action", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "p", "type": "FLOAT", "mode": "NULLABLE"},
+  {"name": "net_pnl_usd", "type": "FLOAT", "mode": "NULLABLE", "description": "hypothetical_trade_closed only"},
+  {"name": "gross_pnl_usd", "type": "FLOAT", "mode": "NULLABLE", "description": "trade_closed and hypothetical_trade_closed"},
+  {"name": "payload", "type": "STRING", "mode": "REQUIRED", "description": "the whole scrubbed log record as JSON text; read fields with JSON_VALUE / JSON_QUERY"},
+  {"name": "source_file", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "line_no", "type": "INTEGER", "mode": "NULLABLE"}
+]

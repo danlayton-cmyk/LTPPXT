@@ -10,4 +10,4 @@ dependencies = []
 judge = ["typesafe-sdk==0.7.5"]
 
 [tool.setuptools]
-packages = ["desk", "state", "questions", "policy", "risk", "broker", "filter", "book", "logs", "judge", "reports"]
+packages = ["desk", "state", "questions", "policy", "risk", "broker", "filter", "book", "logs", "judge", "reports", "cloud"]

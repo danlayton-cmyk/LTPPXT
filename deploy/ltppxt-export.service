@@ -1,0 +1,23 @@
+[Unit]
+Description=LTPPXT: copy event logs to BigQuery (today and yesterday, replace by day)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ltppxt
+EnvironmentFile=/etc/ltppxt/export.env
+# The bq CLI keeps config and credential cache under these. Credentials come from the VM's
+# service account through the metadata server; no key file is involved.
+Environment=HOME=/var/lib/ltppxt-export CLOUDSDK_CONFIG=/var/lib/ltppxt-export/gcloud
+StateDirectory=ltppxt-export
+WorkingDirectory=@APP@
+ExecStart=@APP@/.venv/bin/python -m cloud.export_bq --logs /var/lib/ltppxt/logs --project=${BQ_PROJECT} --dataset=${BQ_DATASET} --location=${BQ_LOCATION}
+# Stay out of the desk's way on a small VM.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=15min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
