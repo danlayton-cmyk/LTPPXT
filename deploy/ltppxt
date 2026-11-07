@@ -33,6 +33,27 @@ case "${1:-status}" in
     as_desk "$PY" -m reports.calibration --logs "$LOGS" --out "$OUT"
     sudo cat "$OUT/calibration.md"
     ;;
+  export)
+    # One BigQuery export now (normally hourly from ltppxt-export.timer).
+    [ -s /etc/ltppxt/export.env ] || { echo "BigQuery export is not set up; see cloud/README.md" >&2; exit 1; }
+    sudo systemctl start ltppxt-export.service || true
+    sudo journalctl -u ltppxt-export -n "${2:-10}" --no-pager
+    systemctl list-timers ltppxt-export.timer --no-pager || true
+    ;;
+  egress)
+    # Bytes this VM has sent since boot, extrapolated to 30 days. Google's free tier covers
+    # 1 GB/month of egress from North America (Free Tier table, checked 2026-11-06).
+    # This counts ALL bytes sent, including traffic Google may not bill, so it is an upper bound.
+    iface="$(ip route show default 2>/dev/null | awk '{print $5; exit}')"
+    tx="$(cat "/sys/class/net/${iface:-eth0}/statistics/tx_bytes")"
+    up="$(cut -d' ' -f1 /proc/uptime)"
+    awk -v tx="$tx" -v up="$up" -v i="${iface:-eth0}" 'BEGIN {
+      days = up / 86400; per30 = (days > 0 ? tx / days * 30 : 0) / 1e9
+      printf "%s sent %.3f GB in %.2f days since boot -> about %.2f GB per 30 days\n", i, tx / 1e9, days, per30
+      if (days < 1) print "  (under a day of uptime; the projection is rough)"
+      if (per30 > 1) print "  Above the 1 GB/month free egress. See cloud/README.md (egress)."
+    }'
+    ;;
   update)
     curl -fsSL "https://raw.githubusercontent.com/danlayton-cmyk/LTPPXT/${LTPPXT_REF:-main}/deploy/setup.sh" | sudo --preserve-env=LTPPXT_BOT,LTPPXT_MODE,LTPPXT_REF bash
     ;;
@@ -40,7 +61,7 @@ case "${1:-status}" in
     sudo systemctl "$1" ltppxt-judge ltppxt-desk
     ;;
   *)
-    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|update|start|stop|restart]" >&2
+    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|export|egress|update|start|stop|restart]" >&2
     exit 2
     ;;
 esac
