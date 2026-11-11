@@ -78,6 +78,12 @@ Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt
 
 If `ltppxt answers` stays empty, check `ltppxt logs`: a `401 Unauthorized` from api.typesafe.ai means the key is wrong. Rejections such as `thin_book` mean no candidate reached Jev yet.
 
+## Google Cloud add-ons (optional)
+
+`cloud/` has a read-only free-tier audit, an hourly BigQuery copy of the event logs, and a
+budget guard that stops the VM if spend passes a line. None of it is imported by the desk.
+See `cloud/README.md`.
+
 ## Not built yet
 
 - Tuned numbers. Every threshold, weight and limit in `desk/config.py` and `policy/policy.py` is a starting default.

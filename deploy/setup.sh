@@ -76,9 +76,28 @@ for unit in ltppxt-judge ltppxt-desk; do
     "$APP/deploy/$unit.service" >"/etc/systemd/system/$unit.service"
 done
 install -m 755 "$APP/deploy/ltppxt" /usr/local/bin/ltppxt
+
+# Optional hourly copy of the event logs to BigQuery (cloud/README.md). Off unless
+# LTPPXT_BQ_PROJECT is set; once set, later runs keep it until /etc/ltppxt/export.env is removed.
+if [ -n "${LTPPXT_BQ_PROJECT:-}" ]; then
+  command -v bq >/dev/null || die "LTPPXT_BQ_PROJECT is set but the bq CLI is missing (install google-cloud-cli)"
+  printf 'BQ_PROJECT=%s\nBQ_DATASET=%s\nBQ_LOCATION=%s\n' \
+    "$LTPPXT_BQ_PROJECT" "${LTPPXT_BQ_DATASET:-ltppxt}" "${LTPPXT_BQ_LOCATION:-US}" >"$ETC/export.env"
+  chmod 644 "$ETC/export.env"
+fi
+if [ -s "$ETC/export.env" ]; then
+  echo "Installing hourly BigQuery export ($(sed -n 's/^BQ_PROJECT=//p' "$ETC/export.env"))..."
+  for unit in ltppxt-export.service ltppxt-export.timer; do
+    sed -e "s|@APP@|$APP|g" "$APP/deploy/$unit" >"/etc/systemd/system/$unit"
+  done
+fi
+
 systemctl daemon-reload
 systemctl enable -q ltppxt-judge ltppxt-desk
 systemctl restart ltppxt-judge ltppxt-desk
+if [ -s "$ETC/export.env" ]; then
+  systemctl enable -q --now ltppxt-export.timer
+fi
 
 sleep 3
 systemctl --no-pager --lines=0 status ltppxt-judge ltppxt-desk || true
