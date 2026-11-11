@@ -12,14 +12,14 @@ what to do with the answers, and code-only risk checks sit in front of every ord
 |---|---|
 | `state/` | Deterministic snapshot from raw ticks: mid, spread, imbalance, realized vol, returns over 1m/5m/15m, inventory, drawdown. Reads only ticks stamped before the decision. Rejects any snapshot estimated at 400 tokens or more. |
 | `questions/` | One battery per bot (`gambler`, `house`, `spy`). One judgment per question. Every Choice gets an `other` option automatically. Resolvers turn later market data into outcomes for calibration. |
-| `policy/` | Weights that combine answers into one probability per action, and one threshold per action: the break-even probability given expected move and costs, with a floor. Each bot has its own holding period (`DEFAULT_HORIZON_S_BY_BOT` in `desk/config.py`): gambler and spy 30 minutes, because they pay taker fees; house 5 minutes, because it pays maker fees. |
+| `policy/` | Weights that combine answers into one probability per action, and one threshold per action: the break-even probability given expected move and costs, with a floor. Each bot has its own holding period (`DEFAULT_HORIZON_S_BY_BOT` in `desk/config.py`): gambler and spy 30 minutes, because they pay taker fees; house 5 minutes, because it enters with maker limit orders. Every entry is priced as its own leg plus the market-order exit it commits to, so house pays maker in and taker out. |
 | `risk/` | Hard vetoes before every order: max position, daily loss limit, leverage cap, range guard, fees-plus-gas, model version. `GuardedBroker` is the only way to place an order. A code-only stop-loss (`stop_loss_bps`) closes the position before the judge is asked, so it still fires when the judge is down. |
 | `broker/` | `Broker` interface plus `PaperBroker`. `make_broker()` can only return a paper broker. |
 | `filter/` | The funnel, cheapest check first: free cut, one-call depth check, hard facts in code, Jev, final pick. Every rejection is logged with its stage and check. |
 | `book/` | One open position at a time (no scanning while one is open). A bench where the rejecting check sets how long a symbol sits out. |
 | `logs/` | JSONL event log, one file per UTC day, in `logs/data/` (git-ignored). Scrubs secret-looking keys and known secret values. |
 | `judge/` | The only process that holds the TypeSafe key. Desk calls it with a separate desk secret. Returns Jev's answers raw. |
-| `reports/` | Calibration report, one section per model and battery version (buckets, Brier, per-label rates, reliability SVG), and daily summary. |
+| `reports/` | Calibration report, one section per model, battery version and source (funnel, exit, or the scheduled sample), with buckets, Brier, per-label rates, a reliability SVG, and a skill section: Brier against the base rate and Jev's own average answer, AUC per label, and a count of non-overlapping windows. Daily summary, which re-prices shadow's hypothetical trades at Coinbase US entry-level fees. |
 | `desk/` | Config, market feeds (synthetic, replay, live Coinbase), and the run loop. |
 
 ## Jev
@@ -52,7 +52,7 @@ DESK_JUDGE_SECRET=<same value> python -m desk.run --mode shadow --bot spy --feed
 
 The desk refuses to start if `TYPESAFE_API_KEY` is in its environment. The judge refuses to start with `TYPESAFE_LOG_LEVEL=debug`, because the SDK logs full request bodies at debug.
 
-The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/book?level=1` once a second per symbol, stamps each tick with the exchange's `time` field, and keeps about 17 minutes in memory. On start it backfills that history from Coinbase's public 1-minute candles (one request per symbol), so trading can begin as soon as fresh book data arrives. Backfilled ticks are candle closes with no spread or size; they feed returns and realized vol only. If backfill fails, or with `--no-backfill`, the first 15 minutes are warm-up and every symbol is rejected as `insufficient_history`. Coinbase caches this endpoint for up to 2 s, so ticks arrive every 1-2 s. Data age is measured against your machine's clock, so keep it NTP-synced.
+The live feed polls `GET https://api.exchange.coinbase.com/products/{symbol}/book?level=1` once a second per symbol, stamps each tick with the exchange's `time` field, and keeps about 17 minutes in memory. On start it backfills that history from Coinbase's public 1-minute candles (one request per symbol), so trading can begin as soon as fresh book data arrives. Backfilled ticks are candle closes with no spread or size; they feed returns and realized vol only. Once per holding period the desk also asks Jev about one symbol on a fixed rotation, whatever the funnel thinks (source `schedule`, decision ids containing `-sample-`), so calibration is not limited to moments the filters picked. These samples never trade. For house that is about 288 extra Jev calls a day; `--no-sample` turns it off. If backfill fails, or with `--no-backfill`, the first 15 minutes are warm-up and every symbol is rejected as `insufficient_history`. Coinbase caches this endpoint for up to 2 s, so ticks arrive every 1-2 s. Data age is measured against your machine's clock, so keep it NTP-synced.
 
 Modes:
 - `shadow`: Jev labels every decision, the policy and risk run, and the log records what would have happened. Nothing executes.
@@ -74,7 +74,7 @@ Tests: `python -m unittest discover -s tests -t .`
 
 The judge and the desk run as two separate users and restart after crashes and reboots. The desk can't read the key file or the judge's environment. It starts in shadow mode with the house bot; to change that, put the settings before the command, e.g. `curl ... | sudo LTPPXT_BOT=spy bash`.
 
-Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
+Check on it with `ltppxt status`, `ltppxt answers`, `ltppxt rejections`, `ltppxt daily`, `ltppxt calibration`, `ltppxt replay` and `ltppxt logs`. `ltppxt update` pulls the latest `main` and restarts. To change the key: `curl ... | sudo LTPPXT_ROTATE_KEY=1 bash`.
 
 If `ltppxt answers` stays empty, check `ltppxt logs`: a `401 Unauthorized` from api.typesafe.ai means the key is wrong. Rejections such as `thin_book` mean no candidate reached Jev yet.
 

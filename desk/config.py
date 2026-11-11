@@ -33,10 +33,17 @@ class StateConfig:
 
 @dataclass(frozen=True)
 class FeeConfig:
+    # Defaults are far below Coinbase US entry-level spot fees; see COINBASE_US_ENTRY_FEES.
     taker_fee_bps: float = 5.0
     maker_fee_bps: float = 1.0
     gas_usd_per_fill: float = 0.0  # set above zero for on-chain venues
     slippage_bps: float = 1.0  # paper market orders fill this far through the touch
+
+
+# Coinbase Advanced US spot, entry-level tier (under $10K 30-day volume): 0.50% maker,
+# 0.90% taker, per Coinbase's fee change effective 2026-09-16. Used by the daily report's
+# "net at Coinbase fees" line; the desk itself still runs on FeeConfig().
+COINBASE_US_ENTRY_FEES = FeeConfig(taker_fee_bps=90.0, maker_fee_bps=50.0)
 
 
 @dataclass(frozen=True)
@@ -112,6 +119,9 @@ class DeskConfig:
     risk: RiskConfig = field(default_factory=RiskConfig)
     funnel: FunnelConfig = field(default_factory=FunnelConfig)
     bench_seconds: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_BENCH_SECONDS))
+    # Ask Jev about one symbol per holding period on a fixed rotation, regardless of the funnel,
+    # so calibration has questions that were not selected by the funnel's filters. Never trades.
+    sample_on_schedule: bool = False
 
     @property
     def horizon_s(self) -> float:

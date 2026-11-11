@@ -33,6 +33,22 @@ case "${1:-status}" in
     as_desk "$PY" -m reports.calibration --logs "$LOGS" --out "$OUT"
     sudo cat "$OUT/calibration.md"
     ;;
+  replay)
+    # Dry run by default: logged answers and baselines only. With --call-jev it also asks Jev again
+    # (capped by --max-calls, default 200): jev-1.13.0 through the running judge, and jev-1.14.0
+    # through a temporary second judge on port 8788 that stops when the replay ends.
+    shift
+    if [[ " $* " == *" --call-jev "* ]]; then
+      unit="ltppxt-replay-judge"
+      sudo systemd-run --unit="$unit" --collect -q --uid=ltppxt-judge -p EnvironmentFile=/etc/ltppxt/judge.env \
+        -p WorkingDirectory="$APP" -E JEV_MODEL=jev-1.14.0 -E JUDGE_HOST=127.0.0.1 -E JUDGE_PORT=8788 "$PY" -m judge.server
+      trap 'sudo systemctl stop "$unit" 2>/dev/null || true' EXIT
+      sleep 3
+    fi
+    sudo systemd-run --pipe --wait --collect -q --uid=ltppxt -p EnvironmentFile=/etc/ltppxt/desk.env -p WorkingDirectory="$APP" \
+      "$PY" -m reports.replay --logs "$LOGS" --out "$OUT" "$@"
+    sudo cat "$OUT/replay.md"
+    ;;
   update)
     curl -fsSL "https://raw.githubusercontent.com/danlayton-cmyk/LTPPXT/${LTPPXT_REF:-main}/deploy/setup.sh" | sudo --preserve-env=LTPPXT_BOT,LTPPXT_MODE,LTPPXT_REF bash
     ;;
@@ -40,7 +56,7 @@ case "${1:-status}" in
     sudo systemctl "$1" ltppxt-judge ltppxt-desk
     ;;
   *)
-    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|update|start|stop|restart]" >&2
+    echo "usage: ltppxt [status|logs [n]|answers [n]|rejections [n]|daily [YYYY-MM-DD]|calibration|replay [--call-jev] [--max-calls n]|update|start|stop|restart]" >&2
     exit 2
     ;;
 esac

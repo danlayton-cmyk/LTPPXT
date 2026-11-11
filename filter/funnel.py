@@ -18,7 +18,7 @@ from desk.config import DeskConfig
 from desk.feed import MarketFeed
 from judge.client import JudgeError, JudgeRateLimited, JudgeResult
 from logs.writer import EventLog
-from policy.policy import Action, Decision, cost_bps, decide, expected_move_bps
+from policy.policy import Action, Decision, decide, expected_move_bps, round_trip_cost_bps
 from questions.battery import Battery
 from state.snapshot import Snapshot
 
@@ -110,7 +110,7 @@ class Funnel:
         passive = self.battery.bot == "house"
         for snap in snaps:
             move = expected_move_bps(snap, self.cfg)
-            cost = cost_bps(snap, self.cfg.fees, self.cfg.order_size_usd, passive, legs=2)
+            cost = round_trip_cost_bps(snap, self.cfg.fees, self.cfg.order_size_usd, passive)
             if move < cost * self.cfg.risk.fee_edge_margin:
                 self._reject(res, now, snap.symbol, "hard_facts", "costs_exceed_move", f"expected move {move:.2f} bps < costs {cost:.2f} x {self.cfg.risk.fee_edge_margin}")
             elif self.cfg.order_size_usd > self.cfg.risk.max_position_usd:
@@ -118,7 +118,7 @@ class Funnel:
             else:
                 out.append(snap)
         # Rank by expected move per unit of cost so the judge sees the best candidates first.
-        return sorted(out, key=lambda s: expected_move_bps(s, self.cfg) / max(cost_bps(s, self.cfg.fees, self.cfg.order_size_usd, passive, 2), 1e-9), reverse=True)
+        return sorted(out, key=lambda s: expected_move_bps(s, self.cfg) / max(round_trip_cost_bps(s, self.cfg.fees, self.cfg.order_size_usd, passive), 1e-9), reverse=True)
 
     def _jev(self, snaps: list[Snapshot], now: float, deadline: Callable[[], float], blocked: bool, res: FunnelResult) -> list[Judged]:
         cap = self.cfg.funnel.max_jev_candidates
@@ -145,7 +145,7 @@ class Funnel:
                 self._reject(res, now, snap.symbol, "jev", e.check, str(e))
                 continue
             self.log.write(
-                "answer", now, decision_id=decision_id, bot=self.battery.bot, battery_version=self.battery.version,
+                "answer", now, decision_id=decision_id, bot=self.battery.bot, battery_version=self.battery.version, source="funnel",
                 model=result.model, answers=result.answers, usage=result.usage, request_id=result.request_id, latency_s=round(result.latency_s, 4),
             )
             decision = decide(self.battery.bot, result.answers, snap, self.cfg, has_position=False)
