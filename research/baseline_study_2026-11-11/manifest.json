@@ -1,0 +1,22 @@
+{
+  "source": "https://api.exchange.coinbase.com/products/{symbol}/candles?granularity=60",
+  "start": "2026-08-13T00:00:00Z",
+  "end": "2026-11-11T00:00:00Z",
+  "files": {
+    "BTC-USD": {
+      "rows": 129597,
+      "expected_minutes": 129600,
+      "sha256": "af8cd35e81b9fdb9ef6e9f80aeb5c320582027fc75c5f5d97345ba6d6255c188"
+    },
+    "ETH-USD": {
+      "rows": 129596,
+      "expected_minutes": 129600,
+      "sha256": "0113e96e46f13227149aa461564f63806bb5b833ec3c13cb4bd78e8125f1e30f"
+    },
+    "SOL-USD": {
+      "rows": 129593,
+      "expected_minutes": 129600,
+      "sha256": "7c3d224fa4a638244906c6ae53f65b3954f10d0b0f9525fb9bb1a6091b39458b"
+    }
+  }
+}

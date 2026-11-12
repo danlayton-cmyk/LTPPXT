@@ -2,8 +2,12 @@
 
 import unittest
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+    import sklearn  # noqa: F401
+except ImportError:  # research extras are optional; the desk itself is stdlib-only
+    raise unittest.SkipTest("research extras not installed (pip install -e '.[research]')") from None
 
 from decisionlab.calibration import purged_walk_forward_split, run_calibration_audit
 
