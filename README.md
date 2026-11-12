@@ -21,6 +21,7 @@ what to do with the answers, and code-only risk checks sit in front of every ord
 | `judge/` | The only process that holds the TypeSafe key. Desk calls it with a separate desk secret. Returns Jev's answers raw. |
 | `reports/` | Calibration report, one section per model and battery version (buckets, Brier, per-label rates, reliability SVG), and daily summary. |
 | `desk/` | Config, market feeds (synthetic, replay, live Coinbase), and the run loop. |
+| `decisionlab/` | Offline research only; the desk never imports it. `evaluate.py` is a model-agnostic evaluator (purged chronological split, Brier, AUC, day-block bootstrap, Holm). `candles.py` and `baseline_study.py` run a pre-specified baseline on public candles; results are in `research/`. Needs `pip install -e '.[research]'`. See `AUDIT_2026-11-11.md`. |
 
 ## Jev
 

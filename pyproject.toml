@@ -8,6 +8,10 @@ dependencies = []
 [project.optional-dependencies]
 # Only the judge process needs the SDK. Pinned exactly; bump deliberately.
 judge = ["typesafe-sdk==0.7.5"]
+# Offline research only (decisionlab/). The desk and judge never import these.
+# decisionlab/evaluate.py, candles.py and baseline_study.py need numpy alone;
+# decisionlab/calibration.py also needs pandas and scikit-learn.
+research = ["numpy>=2.0", "pandas>=2.2", "scikit-learn>=1.5"]
 
 [tool.setuptools]
-packages = ["desk", "state", "questions", "policy", "risk", "broker", "filter", "book", "logs", "judge", "reports"]
+packages = ["desk", "state", "questions", "policy", "risk", "broker", "filter", "book", "logs", "judge", "reports", "decisionlab"]
